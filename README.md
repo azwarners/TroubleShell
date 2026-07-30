@@ -6,7 +6,6 @@ TriageTTY is a native Linux desktop terminal with an AI troubleshooting pane. It
 
 TriageTTY is deliberately not an autonomous agent. The model cannot execute commands, browse files, call tools, or inspect the host directly. **Insert** only places command text into the terminal input; it never presses Enter.
 
-![TriageTTY terminal and troubleshooting chat](docs/assets/triagetty-screenshot.png)
 
 ## Status
 
