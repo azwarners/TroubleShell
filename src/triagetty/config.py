@@ -43,10 +43,11 @@ class Config:
     endpoint_url: str = "http://localhost:11434/v1"
     model: str = "llama3.2"
     api_key: str = ""
-    context_line_limit: int = 200
-    context_character_limit: int = 12000
+    max_context_tokens: int = 8000
     shell: str = "/bin/bash"
     terminal_font: str = "Monospace 10"
+    terminal_font_size: int = 10
+    chat_font_size: int = 10
     verify_tls: bool = True
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
 

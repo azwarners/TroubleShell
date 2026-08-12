@@ -1,13 +1,44 @@
+"""Prompt building with context management."""
+
 from triagetty.chat.models import ChatMessage, ChatRequest
 from triagetty.config import DEFAULT_SYSTEM_PROMPT
-from triagetty.terminal.transcript import bound_transcript
+from triagetty.terminal.transcript import estimate_tokens
+
+# Maximum estimated tokens for the entire request
+MAX_REQUEST_TOKENS: int = 15000
 
 
-def build_request(*, model: str, question: str, transcript: str = "", max_lines: int = 200,
-                  max_characters: int = 12000, history: tuple[ChatMessage, ...] = (),
-                  system_prompt: str = DEFAULT_SYSTEM_PROMPT) -> ChatRequest:
-    bounded = bound_transcript(transcript, max_lines=max_lines, max_characters=max_characters)
-    context = bounded if bounded else "(no terminal context was shared)"
-    user_content = f"<terminal_context>\n{context}\n</terminal_context>\n\n<user_question>\n{question}\n</user_question>"
-    return ChatRequest(model, (ChatMessage("system", system_prompt or DEFAULT_SYSTEM_PROMPT), *history,
-                               ChatMessage("user", user_content)))
+def build_request(
+    *,
+    model: str,
+    question: str,
+    transcript: str = "",
+    max_tokens: int = MAX_REQUEST_TOKENS,
+    history: tuple[ChatMessage, ...] = (),
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+) -> ChatRequest:
+    """Build a chat request without per-message history trimming.
+    
+    Per blueprint contract:
+    - History is preserved unchanged; trimming happens only at compaction time
+    - Compaction is an explicit whole-request decision near provider limit
+    - Normal turns never trim terminal events or history
+    
+    The max_tokens parameter is informational; actual compaction must be
+    performed explicitly by the caller when approaching the limit.
+    """
+    system_msg = ChatMessage("system", system_prompt or DEFAULT_SYSTEM_PROMPT)
+    
+    # Process transcript for current message
+    if not transcript:
+        context = "(no terminal context was shared)"
+    else:
+        context = transcript
+    user_content = (
+        f"<terminal_context>\n{context}\n</terminal_context>\n\n"
+        f"<user_question>\n{question}\n</user_question>"
+    )
+    current_msg = ChatMessage("user", user_content)
+    
+    # Return with full history; no trimming here
+    return ChatRequest(model, (system_msg, *history, current_msg))

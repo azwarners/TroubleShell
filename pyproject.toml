@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A Linux terminal with an AI troubleshooting pane."
 readme = "README.md"
 requires-python = ">=3.12"
-license = "LGPL-3.0-or-later"
+license = "MIT"
 authors = [{name = "Nick"}]
 dependencies = [
   "httpx>=0.27",

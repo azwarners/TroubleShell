@@ -71,8 +71,8 @@ ${XDG_CONFIG_HOME:-~/.config}/triagetty/config.toml
 The file contains the endpoint, model, API key field, TLS setting, shell, context limits, and the complete editable system prompt. A typical local configuration starts like this:
 
 ```toml
-endpoint_url = "http://localhost:11434/v1"
-model = "llama3.2"
+endpoint_url = "http://<IP address>:<port #>/v1"
+model = "<model alias>"
 api_key = ""
 context_line_limit = 200
 context_character_limit = 12000
@@ -118,4 +118,4 @@ Architecture details are in [docs/architecture.md](docs/architecture.md). The th
 
 ## License
 
-TriageTTY is licensed under the GNU Lesser General Public License, version 3 or later. See [LICENSE](LICENSE).
+TriageTTY is licensed under the MIT License. See [LICENSE](LICENSE).

@@ -5,7 +5,7 @@ import re
 
 from .models import CodeSegment, TextSegment
 
-_FENCE_RE = re.compile(r"^\s{0,3}```\s*([^\s`]*)\s*$")
+_FENCE_RE = re.compile(r"^\s{0,3}```\s*(\w*)[^`]*$")
 _SHELL_LANGUAGES = {"bash", "sh", "shell"}
 
 
@@ -20,10 +20,13 @@ def parse_response(markdown: str) -> tuple[TextSegment | CodeSegment, ...]:
             prose.append(lines[index])
             index += 1
             continue
+        # Only add non-empty prose segments
         if prose:
-            segments.append(TextSegment("".join(prose)))
+            prose_text = "".join(prose)
+            if prose_text.strip():
+                segments.append(TextSegment(prose_text))
             prose = []
-        language = match.group(1).lower() or None
+        language = match.group(1).lower().strip() or None
         index += 1
         code: list[str] = []
         while index < len(lines) and not re.match(r"^\s{0,3}```\s*$", lines[index].rstrip("\n")):
@@ -32,6 +35,12 @@ def parse_response(markdown: str) -> tuple[TextSegment | CodeSegment, ...]:
         if index < len(lines):
             index += 1
         segments.append(CodeSegment(language, "".join(code).rstrip("\n"), language in _SHELL_LANGUAGES))
+    # Only add non-empty prose segments at the end
     if prose:
-        segments.append(TextSegment("".join(prose)))
+        prose_text = "".join(prose)
+        if prose_text.strip():
+            segments.append(TextSegment(prose_text))
+    # Handle empty input
+    if not segments:
+        segments.append(TextSegment(""))
     return tuple(segments)
