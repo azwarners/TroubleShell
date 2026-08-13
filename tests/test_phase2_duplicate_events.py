@@ -23,6 +23,7 @@ def test_duplicate_bytes_in_separate_events_preserved():
 
     # Snapshot for send
     user_msg = ChatMessage("user", "Test question")
+    session.request_slice()
     session.snapshot_for_send(user_msg)
 
     # Build payload
@@ -47,6 +48,7 @@ def test_multi_turn_does_not_resend_similar_text():
     # Turn 1
     store.append("output", b"error: file not found\n")
     user_msg1 = ChatMessage("user", "Q1")
+    session.request_slice()
     session.snapshot_for_send(user_msg1)
     payload1 = session.build_request_payload()
     session.commit_on_success("A1")
@@ -57,6 +59,7 @@ def test_multi_turn_does_not_resend_similar_text():
     # Turn 2
     store.append("output", b"error: permission denied\n")
     user_msg2 = ChatMessage("user", "Q2")
+    session.request_slice()
     session.snapshot_for_send(user_msg2)
     payload2 = session.build_request_payload()
     session.commit_on_success("A2")
@@ -74,6 +77,7 @@ def test_three_turns_each_with_unique_terminal_output():
     for i in range(3):
         store.append("output", f"output {i}\n".encode("utf-8"))
         user_msg = ChatMessage("user", f"Q{i}")
+        session.request_slice()
         session.snapshot_for_send(user_msg)
         payload = session.build_request_payload()
         session.commit_on_success(f"A{i}")

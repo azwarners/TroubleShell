@@ -1,7 +1,7 @@
 """Context session state machine for terminal event tracking.
 
 Per the Terminal Context Blueprint, this module provides:
-- ContextSession: state machine tracking acknowledged/unacknowledged ranges
+- ContextSession: state machine tracking acknowledged/unacknowledged range
 - Compaction when approaching provider limits
 """
 
@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import re
 
 from triagetty.chat.models import ChatMessage
-from triagetty.terminal.transcript_store import TranscriptStore
+from triagetty.terminal.transcript_store import TranscriptSlice, TranscriptStore
 
 
 _TERMINAL_CONTEXT_RE = re.compile(
@@ -31,37 +31,56 @@ class ContextSession:
     transcript: TranscriptStore
     acknowledged_sequence: int = 0
     transcript_start_sequence: int = 0  # First sequence in current transcript baseline
-    pending_request_end_sequence: int | None = None
+    pending_slice: TranscriptSlice | None = None  # Atomic snapshot for current request
     pending_user_message: ChatMessage | None = None  # The exact user message sent
     history: list[ChatMessage] = field(default_factory=list)
 
-    def snapshot_for_send(self, user_message: ChatMessage) -> int:
-        """Capture the current transcript end sequence before building a request.
+    def request_slice(self) -> TranscriptSlice:
+        """Atomically snapshot and store the terminal context for a request.
+
+        Calls TranscriptStore.snapshot_slice() once. Its end sequence is the
+        immutable boundary for this request, even if output arrives while the
+        request is later compacted and rebuilt.
+
+        Returns:
+            The TranscriptSlice covering [acknowledged_sequence, current_end)
+        """
+        slice_ = self.transcript.snapshot_slice(self.acknowledged_sequence)
+        self.pending_slice = slice_
+        return slice_
+
+    def rebase_pending_slice_after_compaction(self) -> TranscriptSlice:
+        """Rebuild the pending slice from the compacted start at its fixed end.
+
+        Compaction may advance ``acknowledged_sequence``.  It must not extend
+        an already-snapshotted request to include output that arrived after the
+        request boundary, so this deliberately uses the existing pending end
+        rather than taking another store snapshot.
+        """
+        if self.pending_slice is None:
+            raise RuntimeError("cannot rebase a request before taking its snapshot")
+        self.pending_slice = self.transcript.get_slice(
+            self.acknowledged_sequence, self.pending_slice.end_sequence
+        )
+        return self.pending_slice
+
+    def snapshot_for_send(self, user_message: ChatMessage) -> None:
+        """Store the user message being sent; request slice should already exist.
 
         Args:
             user_message: The exact user message in the outbound request.
-
-        Returns:
-            The end sequence (exclusive) of the transcript at snapshot time
         """
-        self.pending_request_end_sequence = self.transcript.next_sequence
-        # Keep the actual serialized message, rather than reconstructing it.
-        # This matters when request construction or compaction changes its content.
         self.pending_user_message = user_message
-        return self.pending_request_end_sequence
 
     def build_request_payload(self) -> str:
-        """Build the terminal context payload for the request.
-
-        Per blueprint contract:
-        - Sends all unacknowledged terminal events through the snapshot
-        - Returns the raw text from events in [acknowledged_sequence, pending_end)
+        """Return the terminal context text from the stored pending slice.
 
         Returns:
             The terminal transcript text to include in the model request
         """
-        end_seq = self.pending_request_end_sequence if self.pending_request_end_sequence is not None else self.transcript.next_sequence
-        return self.transcript.get_slice(self.acknowledged_sequence, end_seq).text
+        if self.pending_slice is None:
+            return ""
+        return self.pending_slice.text
 
     def commit_on_success(self, response: str) -> None:
         """Advance acknowledgement after successful response.
@@ -78,8 +97,9 @@ class ContextSession:
         if self.pending_user_message is not None:
             self.history.append(self.pending_user_message)
         self.history.append(ChatMessage("assistant", response))
-        self.acknowledged_sequence = self.pending_request_end_sequence if self.pending_request_end_sequence is not None else self.acknowledged_sequence
-        self.pending_request_end_sequence = None
+        if self.pending_slice is not None:
+            self.acknowledged_sequence = self.pending_slice.end_sequence
+        self.pending_slice = None
         self.pending_user_message = None
 
     def rollback_on_failure(self) -> None:
@@ -90,25 +110,26 @@ class ContextSession:
         - Clear the pending request state
         - Next send will include the same unacknowledged range
         """
-        self.pending_request_end_sequence = None
+        self.pending_slice = None
         self.pending_user_message = None
 
     def compact(self, provider_limit: int) -> int:
-        """Perform compaction when approaching provider context limit.
+        """Compact history and terminal context when approaching provider limits.
 
-        Per blueprint contract: "When the complete request approaches the provider
-        limit, TriageTTY performs one explicit compaction: drop the oldest two thirds
-        of terminal transcript events and retain the newest third."
+        Per blueprint contract:
+        - Retain newest third of terminal events
+        - Retain newest third of history
+        - Update acknowledged_sequence to the first retained terminal event
 
         Args:
-            provider_limit: The provider's context token limit
+            provider_limit: Provider's token limit
 
         Returns:
-            The new acknowledged_sequence (start of retained baseline)
+            The new start sequence after compaction
         """
-        total_events = self.transcript.next_sequence
-        if total_events <= 3:
-            return self.acknowledged_sequence
+        total_events = self.transcript.next_sequence - self.transcript_start_sequence
+        if total_events < provider_limit * 0.8:
+            return self.transcript_start_sequence
 
         # Retain newest third: keep events from index 2/3 onwards
         new_start = (total_events * 2) // 3

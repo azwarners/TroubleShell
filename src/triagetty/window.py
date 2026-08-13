@@ -189,6 +189,9 @@ class TriageWindow:
         self.status_label.set_text("Thinking…")
         self._append_text(f"You: {question}\n\n")
 
+        # Atomic snapshot of terminal context before building the request.
+        self.context_session.request_slice()
+
         # Build a prospective complete request before deciding whether the one
         # permitted compaction is necessary. There is no per-message budget.
         payload_transcript = self.context_session.build_request_payload()
@@ -199,13 +202,16 @@ class TriageWindow:
         total_estimated = sum(estimate_tokens(message.content) for message in request.messages)
         if total_estimated > self.config.max_context_tokens * 0.8:  # 80% threshold
             self.context_session.compact(self.config.max_context_tokens)
+            # Rebase to the compacted start without moving this request's
+            # atomic end boundary forward.
+            self.context_session.rebase_pending_slice_after_compaction()
             payload_transcript = self.context_session.build_request_payload()
             request = build_request(model=self.config.model, question=question, transcript=payload_transcript,
                                     max_tokens=self.config.max_context_tokens,
                                     system_prompt=self.config.system_prompt,
                                     history=tuple(self.context_session.history))
 
-        # Snapshot only after compaction and save exactly the message we send.
+        # Store the user message we are sending.
         self.context_session.snapshot_for_send(request.messages[-1])
 
         client = OpenAICompatibleClient(base_url=self.config.endpoint_url, api_key=self.config.api_key,

@@ -125,6 +125,7 @@ def test_two_successful_turns_preserve_terminal_context():
     
     # Turn 1: snapshot with Q1 and terminal payload A
     payload_1 = transcript_store.get_slice(0, 2).text  # Events 0-1
+    context_session.request_slice()
     context_session.snapshot_for_send(
         build_request(model="test", question="Q1", transcript=payload_1).messages[-1]
     )
@@ -167,6 +168,7 @@ def test_two_successful_turns_preserve_terminal_context():
     
     # Turn 2: snapshot with Q2 and terminal payload B (delta)
     payload_2 = transcript_store.get_slice(2, 4).text  # Events 2-3 only (the delta)
+    context_session.request_slice()
     context_session.snapshot_for_send(
         build_request(model="test", question="Q2", transcript=payload_2).messages[-1]
     )

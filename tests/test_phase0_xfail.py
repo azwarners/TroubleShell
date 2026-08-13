@@ -361,7 +361,8 @@ def test_compaction_drops_old_terminal_history_and_keeps_newest_third():
         ],
     )
 
-    session.compact(provider_limit=100)
+    session.compact(provider_limit=7)
+    session.request_slice()
 
     assert session.build_request_payload() == "terminal 4\nterminal 5\n"
     assert "terminal 0" not in session.history[0].content
@@ -444,52 +445,47 @@ def test_normal_turns_do_not_trim_terminal_events(bare_submission_state):
     Blueprint contract: "TriageTTY does not trim a terminal message just because
     it is large." and "normal turns never trim terminal events."
     
-    Current implementation: _send_question() at line 192 assigns
-    bounded_delta = transcript_delta (no trimming). This test verifies that
-    the actual send path passes the full delta to build_request.
+    Phase 2: _send_question() calls request_slice() which atomically snapshots
+    unacknowledged events. No trimming occurs on normal turns.
     """
     window, fake_thread, fake_build_request, captured_requests = bare_submission_state
-    
-    # Generate substantial output (100 lines)
-    large_transcript = "\n".join(f"line {i}" for i in range(100))
-    window.terminal_pane._full_transcript = large_transcript
-    # Populate transcript store directly (Phase 2)
-    window.transcript_store.append("output", large_transcript.encode("utf-8"))
-    
+
+    # Generate 100 lines for turn 1
+    turn1_transcript = "\n".join(f"line {i}" for i in range(100))
+    window.transcript_store.append("output", turn1_transcript.encode("utf-8"))
+
     # First send: capture what gets passed to build_request
     with patch('triagetty.window.threading.Thread', fake_thread):
         with patch('triagetty.window.build_request', fake_build_request):
             window.question_buffer.set_text("Q1")
             window._send_question(None)
-    
+
     # Verify first send includes all 100 lines
     assert len(captured_requests) == 1
     first_transcript = captured_requests[0]["transcript"]
     assert len(first_transcript.splitlines()) == 100
-    # Note: transcript includes trailing newline, so compare splitlines
-    assert first_transcript.splitlines() == large_transcript.splitlines()
-    
-    # Second send with more output
-    larger_transcript = "\n".join(f"line {i}" for i in range(150))
-    window.terminal_pane._full_transcript = larger_transcript
-    # Add more output to transcript store for turn 2
-    window.transcript_store.append("output", larger_transcript.encode("utf-8"))
-    
+    assert first_transcript.splitlines() == turn1_transcript.splitlines()
+
+    # Complete the first request so acknowledged_sequence advances
+    window._finish_request(
+        MagicMock(content="A1"), None, window.request_id, window.cancel_event
+    )
+
+    # Append only lines 100-149 (the genuine new chunk) for turn 2
+    turn2_transcript = "\n".join(f"line {i}" for i in range(100, 150))
+    window.transcript_store.append("output", turn2_transcript.encode("utf-8"))
+
     with patch('triagetty.window.threading.Thread', fake_thread):
         with patch('triagetty.window.build_request', fake_build_request):
-            window.cancel_event = None  # Reset for second send
+            window.cancel_event = None
             window.question_buffer.set_text("Q2")
             window._send_question(None)
-    
-    # Verify second send delta contains only new lines (100-149)
+
+    # Verify second send contains only the 50 new lines (100-149)
     assert len(captured_requests) == 2
     second_transcript = captured_requests[1]["transcript"]
-    
-    # Verify second send contains the delta (lines 0-99 = 100 lines)
-    # The window's delta computation found overlap_len = 50 (or 0), returning lines 0-99
-    # This suggests the delta computation is not finding the correct overlap
-    assert len(second_transcript.splitlines()) == 100
-    assert second_transcript.splitlines() == [f"line {i}" for i in range(100)]
+    assert len(second_transcript.splitlines()) == 50
+    assert second_transcript.splitlines() == [f"line {i}" for i in range(100, 150)]
 
 
 # --- Meta-test: verify all xfail markers ---

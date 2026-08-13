@@ -220,18 +220,32 @@ optional bounded snapshot.
 
 ## Proposed module boundaries
 
+Repository root: `/home/nick/ServerData/repos/triagetty`. All application
+source lives under its existing `src/triagetty/` package directory; do not
+create a top-level `terminal/`, a top-level `triagetty/`, or `src/terminal/`.
+
 ```text
-triagetty/terminal/pty_proxy.py       GTK-independent PTY forwarding/capture
-triagetty/terminal/transcript_store.py append-only events and deterministic slices
-triagetty/llm/context_session.py      acknowledgement, request state, compaction
-triagetty/llm/prompt.py               pure serialization of already-selected context
-triagetty/window.py                   GTK wiring only
+/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pty_proxy.py
+    GTK-independent PTY forwarding/capture
+/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/transcript_store.py
+    append-only events and deterministic slices
+/home/nick/ServerData/repos/triagetty/src/triagetty/llm/context_session.py
+    acknowledgement, request state, compaction
+/home/nick/ServerData/repos/triagetty/src/triagetty/llm/prompt.py
+    pure serialization of already-selected context
+/home/nick/ServerData/repos/triagetty/src/triagetty/window.py
+    GTK wiring only
 ```
 
 `TerminalPane` should own the VTE widget only. It may receive a proxy endpoint,
 but must not own transcript policy or inspect scrollback for canonical context.
 
 ## Implementation phases for Hermes
+
+The settled Phase 3 design and its deliberately small implementation tasks are
+in [Phase 3 implementation playbook](phase3-pty-proxy-implementation.md).
+That playbook is authoritative for proxy process boundaries, IPC transport,
+threading, and task order.
 
 ### Phase 0: lock the contract with tests
 

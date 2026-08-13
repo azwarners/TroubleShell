@@ -8,6 +8,7 @@ Per the Terminal Context Blueprint:
 """
 
 from dataclasses import dataclass, field
+from threading import RLock
 from typing import Literal
 
 
@@ -48,8 +49,15 @@ class TranscriptStore:
     - Events are immutable and assigned monotonically increasing sequence numbers
     - Distinguishes output vs input streams
     """
-    events: list[TerminalEvent] = field(default_factory=list)
+    _events: list[TerminalEvent] = field(default_factory=list, init=False, repr=False)
     _next_sequence: int = 0
+    _lock: RLock = field(default_factory=RLock, init=False, repr=False)
+
+    @property
+    def events(self) -> tuple[TerminalEvent, ...]:
+        """Return an immutable snapshot of all events, ordered by sequence."""
+        with self._lock:
+            return tuple(self._events)
 
     def append(self, stream: Literal["output", "input"], raw: bytes) -> TerminalEvent:
         """Append a terminal event and return the created event.
@@ -61,10 +69,11 @@ class TranscriptStore:
         Returns:
             The newly created TerminalEvent with assigned sequence number
         """
-        event = TerminalEvent(self._next_sequence, stream, raw)
-        self.events.append(event)
-        self._next_sequence += 1
-        return event
+        with self._lock:
+            event = TerminalEvent(self._next_sequence, stream, raw)
+            self._events.append(event)
+            self._next_sequence += 1
+            return event
 
     def get_slice(self, start_seq: int, end_seq: int) -> TranscriptSlice:
         """Return a slice of the transcript for the given sequence range.
@@ -79,18 +88,34 @@ class TranscriptStore:
         Returns:
             TranscriptSlice containing all events in [start_seq, end_seq)
         """
-        matching = [e for e in self.events if start_seq <= e.sequence < end_seq]
-        # Join raw bytes first, then decode once
-        combined = b"".join(e.raw for e in matching)
-        text = combined.decode("utf-8", errors="replace")
-        return TranscriptSlice(start_seq, end_seq, text)
+        with self._lock:
+            matching = [e for e in self._events if start_seq <= e.sequence < end_seq]
+            combined = b"".join(e.raw for e in matching)
+            text = combined.decode("utf-8", errors="replace")
+            return TranscriptSlice(start_seq, end_seq, text)
+
+    def snapshot_slice(self, start_sequence: int) -> TranscriptSlice:
+        """Atomically capture current end and return [start_sequence, end).
+
+        Acquires the lock once, saves _next_sequence as end_sequence, then
+        returns a slice up to that boundary. Events appended after the lock
+        is released belong to the next request.
+        """
+        with self._lock:
+            end_sequence = self._next_sequence
+            matching = [e for e in self._events if start_sequence <= e.sequence < end_sequence]
+            combined = b"".join(e.raw for e in matching)
+            text = combined.decode("utf-8", errors="replace")
+            return TranscriptSlice(start_sequence, end_sequence, text)
 
     @property
     def next_sequence(self) -> int:
         """Return the next sequence number to be assigned."""
-        return self._next_sequence
+        with self._lock:
+            return self._next_sequence
 
     @property
     def is_empty(self) -> bool:
         """Return True if no events have been captured."""
-        return len(self.events) == 0
+        with self._lock:
+            return len(self._events) == 0
