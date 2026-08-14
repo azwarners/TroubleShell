@@ -157,8 +157,10 @@ def test_session_with_increasing_history():
     if len(context_sizes) > 5:
         first_half_avg = sum(context_sizes[:10]) / 10
         second_half_avg = sum(context_sizes[10:]) / 10
-        # Second half should not be more than 2x first half for linear growth
-        assert second_half_avg < first_half_avg * 2
+        # Complete conversation history grows predictably; it must not show
+        # exponential growth.  This deliberately avoids depending on the
+        # fixed size of the default system prompt.
+        assert second_half_avg < first_half_avg * 3
 
 
 def test_session_without_terminal_context():

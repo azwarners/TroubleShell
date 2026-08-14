@@ -83,6 +83,14 @@ def test_prose_to_pango_handles_inline_code() -> None:
     assert "<tt>ls</tt>" in result
 
 
+def test_prose_to_pango_removes_provider_formatting_tags() -> None:
+    """Provider-generated UI tags should not leak into rendered prose."""
+    result = prose_to_pango("Check <tt>top</tt> and <b>memory</b>. </b></i></tt>")
+    assert "<tt>top</tt>" not in result
+    assert "<b>memory</b>" not in result
+    assert "Check top and memory." in result
+
+
 def test_prose_to_pango_handles_empty_string() -> None:
     assert prose_to_pango("") == ""
 

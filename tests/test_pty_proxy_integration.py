@@ -241,10 +241,12 @@ def test_live_proxy_snapshot_boundary(tmp_path):
         proc.stdin.write(b"x\n")
         proc.stdin.flush()
         wait_for(lambda: "B" in store.get_slice(0, store.next_sequence).text)
-        assert session.build_request_payload() == "A\r\n"
+        assert session.build_request_payload() == "A\n"
         session.snapshot_for_send(ChatMessage("user", "question"))
         session.commit_on_success("answer")
-        assert session.request_slice().text == "B\r\n"
+        second = session.request_slice()
+        assert second.text == "B\r\n"
+        assert session.build_request_payload() == "B\n"
     finally:
         if proc.stdin is not None:
             proc.stdin.close()

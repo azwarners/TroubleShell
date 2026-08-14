@@ -11,8 +11,8 @@ from triagetty.config import Config, config_path, load_config, save_config, _tom
 def test_config_default_values() -> None:
     """Config should have sensible defaults."""
     config = Config()
-    assert config.endpoint_url == "http://localhost:11434/v1"
-    assert config.model == "llama3.2"
+    assert config.endpoint_url == "http://localhost:8080/v1"
+    assert config.model == "someLLM"
     assert config.api_key == ""
     assert config.max_context_tokens == 8000
     assert config.request_timeout is None
@@ -21,12 +21,14 @@ def test_config_default_values() -> None:
     assert config.terminal_font_size == 10
     assert config.chat_font_size == 10
     assert config.verify_tls is True
+    assert config.debug_context_payload is False
 
 
 def test_default_prompt_describes_captured_context() -> None:
     assert "bounded snapshot" not in DEFAULT_SYSTEM_PROMPT.lower()
     assert "recent terminal" not in DEFAULT_SYSTEM_PROMPT.lower()
     assert "provider context limit" in DEFAULT_SYSTEM_PROMPT.lower()
+    assert len(DEFAULT_SYSTEM_PROMPT) < 1_500
 
 
 def test_config_custom_values() -> None:
@@ -42,6 +44,7 @@ def test_config_custom_values() -> None:
         terminal_font_size=14,
         chat_font_size=14,
         verify_tls=False,
+        debug_context_payload=True,
     )
     assert config.endpoint_url == "http://custom:8080/v1"
     assert config.model == "custom-model"
@@ -53,6 +56,7 @@ def test_config_custom_values() -> None:
     assert config.terminal_font_size == 14
     assert config.chat_font_size == 14
     assert config.verify_tls is False
+    assert config.debug_context_payload is True
 
 
 def test_config_is_frozen() -> None:
@@ -101,6 +105,7 @@ def test_save_and_load_config(tmp_path: Path) -> None:
         terminal_font_size=14,
         chat_font_size=14,
         verify_tls=False,
+        debug_context_payload=True,
     )
     config_path = tmp_path / "test_config.toml"
     save_config(config, config_path)
@@ -114,6 +119,14 @@ def test_save_and_load_config(tmp_path: Path) -> None:
     assert loaded.terminal_font_size == config.terminal_font_size
     assert loaded.chat_font_size == config.chat_font_size
     assert loaded.verify_tls == config.verify_tls
+    assert loaded.debug_context_payload is True
+
+
+def test_load_config_supports_context_payload_debugging(tmp_path: Path) -> None:
+    config_path = tmp_path / "debug.toml"
+    config_path.write_text("debug_context_payload = true\n")
+
+    assert load_config(config_path).debug_context_payload is True
 
 
 def test_load_config_with_partial_values(tmp_path: Path) -> None:
@@ -123,7 +136,7 @@ def test_load_config_with_partial_values(tmp_path: Path) -> None:
     config = load_config(config_path)
     assert config.model == "custom-model"
     # Other values should be defaults
-    assert config.endpoint_url == "http://localhost:11434/v1"
+    assert config.endpoint_url == "http://localhost:8080/v1"
     assert config.api_key == ""
 
 

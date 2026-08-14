@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from triagetty.chat.models import ChatMessage, ChatRequest
-from triagetty.llm.openai_compatible import OpenAICompatibleClient
+from triagetty.llm.openai_compatible import OpenAICompatibleClient, chat_completion_payload
 
 
 def _req(text="hi"):
@@ -18,6 +18,21 @@ def _ok_response():
 
 def _handler_ok():
     return httpx.MockTransport(lambda _req: _ok_response())
+
+
+def test_chat_completion_payload_matches_openai_message_format():
+    request = ChatRequest("model", (
+        ChatMessage("system", "instructions"),
+        ChatMessage("user", "question"),
+    ))
+
+    assert chat_completion_payload(request) == {
+        "model": "model",
+        "messages": [
+            {"role": "system", "content": "instructions"},
+            {"role": "user", "content": "question"},
+        ],
+    }
 
 
 @pytest.mark.asyncio
@@ -94,6 +109,21 @@ async def test_openai_compatible_client_sends_multiple_messages():
     assert len(seen_messages[0]) == 4
     assert seen_messages[0][0]["role"] == "system"
     assert seen_messages[0][3]["role"] == "user"
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_client_preserves_reported_prompt_tokens():
+    client = OpenAICompatibleClient(
+        base_url="http://test/v1",
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={
+            "choices": [{"message": {"content": "response"}}],
+            "usage": {"prompt_tokens": 123, "completion_tokens": 4, "total_tokens": 127},
+        })),
+    )
+
+    response = await client.complete(_req())
+
+    assert response.prompt_tokens == 123
 
 
 @pytest.mark.asyncio

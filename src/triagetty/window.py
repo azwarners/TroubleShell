@@ -2,21 +2,23 @@
 
 import asyncio
 from dataclasses import replace
+import json
+import math
 import threading
 import time
 
 from .config import Config, config_path, save_config
-from .chat.models import ChatMessage, ChatRequest, CodeSegment, TextSegment
+from .chat.models import ChatMessage, ChatRequest, ChatResponse, CodeSegment, TextSegment
 from .chat.parser import parse_response
 from .chat.rendering import code_to_pango, prose_to_pango
 from .llm.context_session import ContextSession
-from .llm.openai_compatible import OpenAICompatibleClient
+from .llm.openai_compatible import OpenAICompatibleClient, chat_completion_payload
 from .llm.prompt import build_request
 from .terminal.pane import TerminalPane
 from .terminal.output_capturer import TerminalOutputCapturer
 from .terminal.capture_server import CaptureServer
 from .terminal.transcript_store import TranscriptStore
-from .terminal.transcript import estimate_tokens
+from .terminal.transcript import estimate_request_tokens, request_compaction_limit
 import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio
@@ -87,8 +89,17 @@ class TriageWindow:
         self.response_box.set_margin_bottom(8)
         self.response_box.set_margin_start(8)
         self.response_box.set_margin_end(8)
+        # The message widgets and the fixed status/context widgets are placed
+        # in one bottom-aligned scroller child below. Keeping them together is
+        # important: a vexpand response scroller otherwise leaves status and
+        # Context stranded at its top edge.
+        self.response_content = self._gtk.Box(
+            orientation=self._gtk.Orientation.VERTICAL, spacing=0
+        )
+        self.response_content.set_valign(self._gtk.Align.END)
+        self.response_content.append(self.response_box)
         self.response_scroll = self._gtk.ScrolledWindow(vexpand=True, hexpand=True)
-        self.response_scroll.set_child(self.response_box)
+        self.response_scroll.set_child(self.response_content)
         # Connect scroll event handler to chat scroll window for Ctrl+scroll zoom
         chat_scroll_controller = self._gtk.EventControllerScroll.new(
             self._gtk.EventControllerScrollFlags.BOTH_AXES
@@ -97,7 +108,7 @@ class TriageWindow:
         self.response_scroll.add_controller(chat_scroll_controller)
         self.status_label = self._gtk.Label(label="Ready", xalign=0)
         self.status_label.add_css_class("dim-label")
-        self.context_used_label = self._gtk.Label(label="Context sent: none", xalign=0)
+        self.context_used_label = self._gtk.Label(label="Context used: 0%", xalign=0)
         self.context_used_label.add_css_class("dim-label")
         self.question = self._gtk.TextView(wrap_mode=self._gtk.WrapMode.WORD_CHAR)
         self.question.set_hexpand(True)
@@ -130,9 +141,8 @@ class TriageWindow:
         chat = self._gtk.Box(orientation=self._gtk.Orientation.VERTICAL, spacing=8)
         chat.set_margin_top(12); chat.set_margin_bottom(12); chat.set_margin_start(12); chat.set_margin_end(12)
         chat.append(self.response_scroll)
-        chat.append(self.status_label)
-        chat.append(self.context_used_label)
         context = self._gtk.Expander(label="Context")
+        context.set_visible(self.config.debug_context_payload)
         context_box = self._gtk.Box(orientation=self._gtk.Orientation.VERTICAL, spacing=6)
         context_box.set_margin_top(6)
         context_box.set_margin_bottom(6)
@@ -140,13 +150,20 @@ class TriageWindow:
         context_box.set_margin_end(6)
         self.context_tokens_label = self._gtk.Label(xalign=0)
         self.context_payload_label = self._gtk.Label(
-            label="Full context payload will appear here…", use_markup=True, wrap=True, xalign=0)
+            label="Full context payload will appear here…", wrap=True, xalign=0)
         self.context_payload_label.set_hexpand(True)
-        self.context_payload_label.set_size_request(-1, 200)
+        self.context_payload_label.set_selectable(True)
+        context_payload_scroll = self._gtk.ScrolledWindow(vexpand=True, hexpand=True)
+        context_payload_scroll.set_min_content_height(200)
+        context_payload_scroll.set_max_content_height(400)
+        context_payload_scroll.set_child(self.context_payload_label)
         context_box.append(self.context_tokens_label)
-        context_box.append(self.context_payload_label)
+        context_box.append(context_payload_scroll)
         context.set_child(context_box)
-        chat.append(context)
+        context.connect("notify::expanded", self._on_context_expanded_changed)
+        self.response_content.append(self.status_label)
+        self.response_content.append(self.context_used_label)
+        self.response_content.append(context)
         self._update_context_labels()
         # Initialize chat font from config (after all labels are created)
         self._update_chat_font()
@@ -252,17 +269,22 @@ class TriageWindow:
                                 max_tokens=self.config.max_context_tokens,
                                 system_prompt=self.config.system_prompt,
                                 history=tuple(self.context_session.history))
-        total_estimated = sum(estimate_tokens(message.content) for message in request.messages)
-        if total_estimated > self.config.max_context_tokens:
+        safe_limit = request_compaction_limit(self.config.max_context_tokens)
+        total_estimated = estimate_request_tokens(
+            tuple(message.content for message in request.messages)
+        )
+        if total_estimated > safe_limit:
             self.context_session.compact(self.config.max_context_tokens)
             payload_transcript = self.context_session.build_request_payload()
             request = build_request(model=self.config.model, question=question, transcript=payload_transcript,
                                     max_tokens=self.config.max_context_tokens,
                                     system_prompt=self.config.system_prompt,
                                     history=tuple(self.context_session.history))
-            total_estimated = sum(estimate_tokens(message.content) for message in request.messages)
+            total_estimated = estimate_request_tokens(
+                tuple(message.content for message in request.messages)
+            )
 
-            while total_estimated > self.config.max_context_tokens and self.context_session.pending_slice is not None:
+            while total_estimated > safe_limit and self.context_session.pending_slice is not None:
                 previous_payload = payload_transcript
                 self.context_session.compact(self.config.max_context_tokens)
                 payload_transcript = self.context_session.build_request_payload()
@@ -272,11 +294,15 @@ class TriageWindow:
                                         max_tokens=self.config.max_context_tokens,
                                         system_prompt=self.config.system_prompt,
                                         history=tuple(self.context_session.history))
-                total_estimated = sum(estimate_tokens(message.content) for message in request.messages)
+                total_estimated = estimate_request_tokens(
+                    tuple(message.content for message in request.messages)
+                )
 
-            if total_estimated > self.config.max_context_tokens:
+            if total_estimated > safe_limit:
                 self.context_session.rollback_on_failure()
-                self.status_label.set_text("Terminal context exceeds provider context limit after compaction")
+                self.status_label.set_text(
+                    "Terminal context exceeds provider context limit after conservative compaction"
+                )
                 self.question.set_sensitive(True)
                 self.send_button.set_sensitive(True)
                 self.cancel_button.set_visible(False)
@@ -284,6 +310,7 @@ class TriageWindow:
 
         # Store the user message we are sending.
         self.context_session.snapshot_for_send(request.messages[-1])
+        self._show_sent_context(request, total_estimated)
 
         client = OpenAICompatibleClient(base_url=self.config.endpoint_url, api_key=self.config.api_key,
                                         timeout=getattr(self.config, "request_timeout", None),
@@ -295,12 +322,33 @@ class TriageWindow:
                           args=(client, request, request_id, self.cancel_event), daemon=True).start()
 
     def _update_context_labels(self) -> None:
-        """Update the Context panel labels with token budget info."""
+        """Initialize the Context panel before the first model request."""
+        self.context_tokens_label.set_text(
+            f"Max context tokens: {self.config.max_context_tokens:,}"
+        )
+        self.context_used_label.set_text("Context used: 0%")
+        self.context_payload_label.set_text(
+            "Full context payload will appear here…"
+        )
+
+    def _show_sent_context(self, request: ChatRequest, estimated_tokens: int) -> None:
+        """Display the exact outbound request body and conservative preflight use."""
+        self._show_context_usage(estimated_tokens, source="conservative estimate")
         self.context_tokens_label.set_text(
             f"Max context tokens: {self.config.max_context_tokens:,}"
         )
         self.context_payload_label.set_text(
-            "Full context payload will appear here…"
+            json.dumps(chat_completion_payload(request), ensure_ascii=False, indent=2)
+        )
+
+    def _show_context_usage(self, tokens: int, *, source: str) -> None:
+        """Show request-token usage, distinguishing an estimate from a server count."""
+        limit = self.config.max_context_tokens
+        percent = 0 if tokens == 0 or limit <= 0 else math.ceil(
+            tokens * 100 / limit
+        )
+        self.context_used_label.set_text(
+            f"Context used: {percent}% ({tokens:,} / {limit:,} {source} tokens)"
         )
 
     def _complete_in_background(self, client: OpenAICompatibleClient, request: object,
@@ -348,6 +396,8 @@ class TriageWindow:
             # Phase 1: Commit the session state on success
             # Commit using the stored question from snapshot
             self.context_session.commit_on_success(response.content)
+            if isinstance(response.prompt_tokens, int):
+                self._show_context_usage(response.prompt_tokens, source="reported")
             self._append_response(response.content)
             self.status_label.set_text("Ready")
         self.question_buffer.set_text("")
@@ -376,7 +426,7 @@ class TriageWindow:
         # Let other keys (including Shift+Enter) proceed with default behavior
         return False
 
-    def _append_text(self, text: str) -> None:
+    def _append_text(self, text: str, *, scroll: bool = True) -> None:
         separator = self._gtk.Separator(orientation=self._gtk.Orientation.HORIZONTAL)  # type: ignore
         separator.add_css_class("message-separator")
         self.response_box.append(separator)
@@ -384,11 +434,55 @@ class TriageWindow:
         label.set_selectable(True)
         label.set_hexpand(True)
         self.response_box.append(label)
+        if scroll:
+            self._glib.idle_add(self._scroll_response, separator)
+
+    def _on_context_expanded_changed(self, _expander: object, _param: object) -> None:
+        """Re-anchor the response viewport after Context changes its height."""
+        # GtkExpander animates the size change. An idle callback runs too early
+        # and GTK subsequently restores the adjustment for the old allocation.
+        # Apply the final position after the transition has settled.
+        self._glib.timeout_add(350, self._scroll_response_to_bottom)
+
+    def _scroll_response_to_bottom(self) -> bool:
+        """Scroll to the current bottom after a layout/size change."""
+        adjustment = self.response_scroll.get_vadjustment()
+        maximum = max(
+            adjustment.get_lower(),
+            adjustment.get_upper() - adjustment.get_page_size(),
+        )
+        adjustment.set_value(maximum)
+        return False
+
+    def _scroll_response(self, first_new: object) -> bool:
+        """Reveal newly appended output after GTK has finished measuring it."""
+        adjustment = self.response_scroll.get_vadjustment()
+        page_size = adjustment.get_page_size()
+        maximum = max(adjustment.get_lower(), adjustment.get_upper() - page_size)
+        last_child = self.response_box.get_last_child()
+        if last_child is None:
+            adjustment.set_value(maximum)
+            return False
+
+        first_allocation = first_new.get_allocation()
+        last_allocation = last_child.get_allocation()
+        new_message_height = (
+            last_allocation.y + last_allocation.height - first_allocation.y
+        )
+        if new_message_height > page_size:
+            # A very long reply starts at the top of the viewport so its
+            # beginning is visible; the user can then read downward naturally.
+            target = min(max(adjustment.get_lower(), first_allocation.y), maximum)
+        else:
+            target = maximum
+        adjustment.set_value(target)
+        return False
 
     def _append_response(self, markdown: str) -> None:
+        previous_last = self.response_box.get_last_child()
         for segment in parse_response(markdown):
             if isinstance(segment, TextSegment):
-                self._append_text(segment.text)
+                self._append_text(segment.text, scroll=False)
             elif isinstance(segment, CodeSegment) and segment.insertable:
                 card = self._gtk.Frame(label="Suggested shell command")
                 content = self._gtk.Box(orientation=self._gtk.Orientation.VERTICAL, spacing=8)
@@ -408,7 +502,17 @@ class TriageWindow:
                 card.set_child(content)
                 self.response_box.append(card)
             else:
-                self._append_text(f"Code ({segment.language or 'unlabeled'}):\n{segment.code}\n")
+                self._append_text(
+                    f"Code ({segment.language or 'unlabeled'}):\n{segment.code}\n",
+                    scroll=False,
+                )
+        first_new = (
+            previous_last.get_next_sibling()
+            if previous_last is not None
+            else self.response_box.get_first_child()
+        )
+        if first_new is not None:
+            self._glib.idle_add(self._scroll_response, first_new)
 
     def _copy(self, text: str) -> None:
         self._gdk.Display.get_default().get_clipboard().set(text)

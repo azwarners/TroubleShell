@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import re
 
 from triagetty.chat.models import ChatMessage
-from triagetty.terminal.transcript import estimate_tokens
+from triagetty.terminal.transcript import estimate_tokens, render_terminal_stream
 from triagetty.terminal.transcript_store import TranscriptSlice, TranscriptStore
 
 
@@ -77,14 +77,14 @@ class ContextSession:
         self.pending_user_message = user_message
 
     def build_request_payload(self) -> str:
-        """Return the terminal context text from the stored pending slice.
+        """Return rendered terminal context text from the stored pending slice.
 
         Returns:
             The terminal transcript text to include in the model request
         """
         if self.pending_slice is None:
             return ""
-        return self.pending_slice.text
+        return render_terminal_stream(self.pending_slice.text)
 
     def commit_on_success(self, response: str) -> None:
         """Advance acknowledgement after successful response.

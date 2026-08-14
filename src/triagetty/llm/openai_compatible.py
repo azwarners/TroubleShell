@@ -5,6 +5,21 @@ import httpx
 from triagetty.chat.models import ChatRequest, ChatResponse
 
 
+def chat_completion_payload(request: ChatRequest) -> dict[str, object]:
+    """Return the exact JSON-compatible body sent to the chat endpoint.
+
+    Keeping this conversion in one place lets the UI expose an accurate debug
+    representation without duplicating the client request format.
+    """
+    return {
+        "model": request.model,
+        "messages": [
+            {"role": message.role, "content": message.content}
+            for message in request.messages
+        ],
+    }
+
+
 class OpenAICompatibleClient:
     def __init__(
         self,
@@ -23,7 +38,7 @@ class OpenAICompatibleClient:
 
     async def complete(self, request: ChatRequest) -> ChatResponse:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        payload = {"model": request.model, "messages": [m.__dict__ for m in request.messages]}
+        payload = chat_completion_payload(request)
         
         try:
             async with httpx.AsyncClient(
@@ -69,7 +84,8 @@ class OpenAICompatibleClient:
 
     def _parse_response(self, response: httpx.Response) -> ChatResponse:
         try:
-            content = response.json()["choices"][0]["message"]["content"]
+            payload = response.json()
+            content = payload["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             body = response.text[:500] if response.text else "(empty)"
             raise ValueError(
@@ -80,7 +96,12 @@ class OpenAICompatibleClient:
             raise ValueError(
                 f"The model endpoint returned non-text content: {type(content).__name__}"
             )
-        return ChatResponse(content)
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
+        return ChatResponse(
+            content,
+            prompt_tokens=prompt_tokens if isinstance(prompt_tokens, int) else None,
+        )
 
     def _handle_http_error(self, exc: httpx.HTTPStatusError) -> None:
         status = exc.response.status_code

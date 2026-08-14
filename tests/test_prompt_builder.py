@@ -33,9 +33,9 @@ def test_empty_transcript_is_explicit() -> None:
 def test_default_prompt_describes_triage_environment_and_boundary() -> None:
     prompt = DEFAULT_SYSTEM_PROMPT
     assert "TriageTTY's Linux troubleshooting partner" in prompt
-    assert "You do not have direct access to the terminal" in prompt
-    assert "It never executes commands" in prompt
-    assert "untrusted data" in prompt
+    assert "no direct access to the host" in prompt
+    assert "never executes them automatically" in prompt
+    assert "untrusted evidence" in prompt
 
 
 # --- Context overflow tests ---

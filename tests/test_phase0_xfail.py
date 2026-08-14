@@ -192,11 +192,12 @@ def bare_submission_state():
     captured_requests = []
     
     def fake_build_request(*args, **kwargs):
+        from triagetty.chat.models import ChatMessage, ChatRequest
         captured_requests.append(kwargs)
-        # Return a minimal mock request
-        mock_request = MagicMock()
-        mock_request.messages = [MagicMock(role="user", content=kwargs.get("question", ""))]
-        return mock_request
+        return ChatRequest(
+            kwargs.get("model", "test-model"),
+            (ChatMessage("user", kwargs.get("question", "")),),
+        )
     
     return window, FakeThread, fake_build_request, captured_requests
 
@@ -257,8 +258,10 @@ def test_oversized_single_event_is_compacted_before_submission(bare_submission_s
     assert captured
     assert fake_thread.instances
     assert "older terminal context compacted" in captured[-1].messages[-1].content
-    from triagetty.terminal.transcript import estimate_tokens
-    assert sum(estimate_tokens(message.content) for message in captured[-1].messages) <= 100000
+    from triagetty.terminal.transcript import estimate_request_tokens, request_compaction_limit
+    assert estimate_request_tokens(
+        tuple(message.content for message in captured[-1].messages)
+    ) <= request_compaction_limit(100000)
 
 
 def test_first_compaction_of_one_event_retains_newest_third() -> None:
@@ -280,7 +283,7 @@ def test_first_compaction_of_one_event_retains_newest_third() -> None:
 def test_compaction_refuses_when_retained_context_still_cannot_fit(bare_submission_state):
     window, fake_thread, _fake_build_request, _captured_requests = bare_submission_state
     from triagetty.llm.prompt import build_request as real_build_request
-    from triagetty.terminal.transcript import estimate_tokens
+    from triagetty.terminal.transcript import estimate_request_tokens, request_compaction_limit
 
     window.config.max_context_tokens = 20
     captured = []
@@ -297,7 +300,9 @@ def test_compaction_refuses_when_retained_context_still_cannot_fit(bare_submissi
             window._send_question(None)
 
     if fake_thread.instances:
-        assert sum(estimate_tokens(message.content) for message in captured[-1].messages) <= 20
+        assert estimate_request_tokens(
+            tuple(message.content for message in captured[-1].messages)
+        ) <= request_compaction_limit(20)
     else:
         assert "exceeds provider context limit" in window.status_label.get_text()
 
