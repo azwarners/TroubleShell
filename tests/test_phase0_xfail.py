@@ -68,14 +68,7 @@ class FakeGTK:
 
 
 class FakeTerminalPane:
-    """Fake terminal pane that records transcript reads."""
-    
-    def __init__(self):
-        self._full_transcript = ""
-    
-    def _get_full_transcript(self):
-        """Fake VTE read that returns the configured transcript."""
-        return self._full_transcript
+    """Fake terminal pane; context comes from the session/store."""
 
 
 class FakeConfig:
@@ -110,6 +103,17 @@ class FakeThread:
 
     def start(self):
         self.started = True
+
+
+class FakeCaptureServer:
+    """Small health seam for production submission tests."""
+
+    def __init__(self, state: str = "connected"):
+        self.state = state
+
+    def ensure_healthy(self):
+        if self.state != "connected":
+            raise RuntimeError("terminal capture failed: " + self.state)
 
 
 # --- Test fixtures ---
@@ -152,6 +156,7 @@ def bare_submission_state():
     window.output_capturer = TerminalOutputCapturer(
         transcript_store=window.transcript_store
     )
+    window.capture_server = FakeCaptureServer()
     
     # Mock GTK controls that _send_question() and _finish_request() use
     window.question_buffer = FakeGTK.TextView()
@@ -166,7 +171,6 @@ def bare_submission_state():
     
     # Mock terminal pane
     window.terminal_pane = FakeTerminalPane()
-    window.terminal_pane._full_transcript = ""
     
     # Mock config
     window.config = FakeConfig()
@@ -192,6 +196,107 @@ def bare_submission_state():
         return mock_request
     
     return window, FakeThread, fake_build_request, captured_requests
+
+
+def test_send_refuses_capture_before_connection(bare_submission_state):
+    window, fake_thread, fake_build_request, captured_requests = bare_submission_state
+    window.capture_server.state = "starting"
+    window.question_buffer.set_text("Q")
+    with patch("triagetty.window.threading.Thread", fake_thread):
+        with patch("triagetty.window.build_request", fake_build_request):
+            window._send_question(None)
+    assert not fake_thread.instances
+    assert not captured_requests
+    assert "Terminal capture failed" in window.status_label.get_text()
+
+
+def test_send_refuses_capture_after_disconnect(bare_submission_state):
+    window, fake_thread, fake_build_request, captured_requests = bare_submission_state
+    window.capture_server.state = "closed"
+    window.question_buffer.set_text("Q")
+    with patch("triagetty.window.threading.Thread", fake_thread):
+        with patch("triagetty.window.build_request", fake_build_request):
+            window._send_question(None)
+    assert not fake_thread.instances
+    assert not captured_requests
+    assert "Terminal capture failed" in window.status_label.get_text()
+
+
+def test_context_is_always_taken_from_context_session(bare_submission_state):
+    window, fake_thread, fake_build_request, captured_requests = bare_submission_state
+    window.transcript_store.append("output", b"captured\n")
+    window.question_buffer.set_text("Q")
+    with patch("triagetty.window.threading.Thread", fake_thread):
+        with patch("triagetty.window.build_request", fake_build_request):
+            window._send_question(None)
+    assert fake_thread.instances
+    assert captured_requests[0]["transcript"] == "captured\n"
+
+
+def test_oversized_single_event_is_compacted_before_submission(bare_submission_state):
+    window, fake_thread, _fake_build_request, _captured_requests = bare_submission_state
+    from triagetty.llm.prompt import build_request as real_build_request
+
+    window.config.max_context_tokens = 100000
+    captured = []
+
+    def capture_request(*args, **kwargs):
+        request = real_build_request(*args, **kwargs)
+        captured.append(request)
+        return request
+
+    window.transcript_store.append("output", ("huge terminal line " * 20000).encode())
+    window.question_buffer.set_text("What happened?")
+    with patch("triagetty.window.threading.Thread", fake_thread):
+        with patch("triagetty.window.build_request", capture_request):
+            window._send_question(None)
+
+    assert captured
+    assert fake_thread.instances
+    assert "older terminal context compacted" in captured[-1].messages[-1].content
+    from triagetty.terminal.transcript import estimate_tokens
+    assert sum(estimate_tokens(message.content) for message in captured[-1].messages) <= 100000
+
+
+def test_first_compaction_of_one_event_retains_newest_third() -> None:
+    from triagetty.llm.context_session import ContextSession
+    from triagetty.terminal.transcript_store import TranscriptStore
+
+    text = "terminal-output-" * 300
+    store = TranscriptStore()
+    store.append("output", text.encode())
+    session = ContextSession(store)
+    session.request_slice()
+    session.compact(provider_limit=100000)
+
+    payload = session.build_request_payload()
+    assert payload.startswith("(older terminal context compacted)\n")
+    assert payload.endswith(text[-(len(text) // 3):])
+
+
+def test_compaction_refuses_when_retained_context_still_cannot_fit(bare_submission_state):
+    window, fake_thread, _fake_build_request, _captured_requests = bare_submission_state
+    from triagetty.llm.prompt import build_request as real_build_request
+    from triagetty.terminal.transcript import estimate_tokens
+
+    window.config.max_context_tokens = 20
+    captured = []
+
+    def capture_request(*args, **kwargs):
+        request = real_build_request(*args, **kwargs)
+        captured.append(request)
+        return request
+
+    window.transcript_store.append("output", ("huge terminal line " * 20000).encode())
+    window.question_buffer.set_text("What happened?")
+    with patch("triagetty.window.threading.Thread", fake_thread):
+        with patch("triagetty.window.build_request", capture_request):
+            window._send_question(None)
+
+    if fake_thread.instances:
+        assert sum(estimate_tokens(message.content) for message in captured[-1].messages) <= 20
+    else:
+        assert "exceeds provider context limit" in window.status_label.get_text()
 
 
 # --- Behavioral xfail tests (contract violations) ---
@@ -411,21 +516,18 @@ def test_event_based_transcript_preserves_duplicates():
         "TerminalEvent class should be added at triagetty.terminal.transcript_store in Phase 1"
 
 
-@pytest.mark.xfail(strict=True, reason="Phase 3: PTY proxy should capture bytes independently of VTE scrollback")
 def test_pty_proxy_captures_bytes():
     """The PTY proxy should capture terminal bytes independently of VTE scrollback.
     
     Blueprint contract: "The proxy appends every byte received from the shell side
     to TranscriptStore before forwarding it to VTE."
     
-    Current implementation: TerminalPane._get_full_transcript() uses VTE's
-    get_text_range_format() which can lose output if it exceeds VTE's buffer.
-    
-    Phase 3 will introduce a PTY proxy that captures bytes directly.
+    Phase 3 provides the GTK-free proxy module; real shell capture is covered
+    by the dedicated PTY integration tests.
     """
     # Check if PTYProxy exists (Phase 3 addition)
     try:
-        from triagetty.terminal.proxy import PTYProxy
+        from triagetty.terminal import pty_proxy
         has_pty_proxy = True
     except ImportError:
         has_pty_proxy = False
@@ -433,7 +535,7 @@ def test_pty_proxy_captures_bytes():
     # This assertion should FAIL (xfail) because PTYProxy doesn't exist yet
     # When Phase 3 adds it, this becomes XPASS
     assert has_pty_proxy, \
-        "PTYProxy class should be added at triagetty.terminal.proxy in Phase 3"
+        "PTY proxy should be importable without GTK"
 
 
 # --- Normal passing production test ---
@@ -509,6 +611,13 @@ def test_xfail_markers_present():
                 "test_history_only_contains_completed_pairs",
                 "test_two_successful_turns_send_each_terminal_range_once",
                 "test_compaction_drops_old_terminal_history_and_keeps_newest_third",
+                "test_pty_proxy_captures_bytes",
+                "test_send_refuses_capture_before_connection",
+                "test_send_refuses_capture_after_disconnect",
+                "test_context_is_always_taken_from_context_session",
+                "test_oversized_single_event_is_compacted_before_submission",
+                "test_first_compaction_of_one_event_retains_newest_third",
+                "test_compaction_refuses_when_retained_context_still_cannot_fit",
             )
     ]
     

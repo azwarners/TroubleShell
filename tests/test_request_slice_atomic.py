@@ -173,7 +173,8 @@ class TestResnapshotAfterCompaction:
         # B arrives while the request is being rebuilt for compaction.
         store.append("output", b"B\n")
         session.compact(provider_limit=4)
-        rebased = session.rebase_pending_slice_after_compaction()
+        rebased = session.pending_slice
+        assert rebased is not None
 
         assert rebased.end_sequence == 6
         assert "B\n" not in rebased.text

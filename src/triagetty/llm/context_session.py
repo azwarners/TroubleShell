@@ -9,12 +9,14 @@ from dataclasses import dataclass, field
 import re
 
 from triagetty.chat.models import ChatMessage
+from triagetty.terminal.transcript import estimate_tokens
 from triagetty.terminal.transcript_store import TranscriptSlice, TranscriptStore
 
 
 _TERMINAL_CONTEXT_RE = re.compile(
     r"<terminal_context>\n.*?\n</terminal_context>", re.DOTALL
 )
+_COMPACTION_MARKER = "(older terminal context compacted)\n"
 
 
 @dataclass
@@ -34,6 +36,7 @@ class ContextSession:
     pending_slice: TranscriptSlice | None = None  # Atomic snapshot for current request
     pending_user_message: ChatMessage | None = None  # The exact user message sent
     history: list[ChatMessage] = field(default_factory=list)
+    _compaction_passes: int = field(default=0, init=False, repr=False)
 
     def request_slice(self) -> TranscriptSlice:
         """Atomically snapshot and store the terminal context for a request.
@@ -47,6 +50,7 @@ class ContextSession:
         """
         slice_ = self.transcript.snapshot_slice(self.acknowledged_sequence)
         self.pending_slice = slice_
+        self._compaction_passes = 0
         return slice_
 
     def rebase_pending_slice_after_compaction(self) -> TranscriptSlice:
@@ -101,6 +105,7 @@ class ContextSession:
             self.acknowledged_sequence = self.pending_slice.end_sequence
         self.pending_slice = None
         self.pending_user_message = None
+        self._compaction_passes = 0
 
     def rollback_on_failure(self) -> None:
         """Discard the transient request object on cancellation or failure.
@@ -112,6 +117,7 @@ class ContextSession:
         """
         self.pending_slice = None
         self.pending_user_message = None
+        self._compaction_passes = 0
 
     def compact(self, provider_limit: int) -> int:
         """Compact history and terminal context when approaching provider limits.
@@ -128,31 +134,49 @@ class ContextSession:
             The new start sequence after compaction
         """
         total_events = self.transcript.next_sequence - self.transcript_start_sequence
-        if total_events < provider_limit * 0.8:
-            return self.transcript_start_sequence
-
-        # Retain newest third: keep events from index 2/3 onwards
-        new_start = (total_events * 2) // 3
-        if new_start <= self.transcript_start_sequence:
-            return self.transcript_start_sequence
-
-        self.transcript_start_sequence = new_start
-        self.acknowledged_sequence = new_start
+        # Compaction is called only after the complete request estimate says it
+        # is needed. Never compare event counts with a token limit here.
+        new_start = self.transcript_start_sequence + (total_events * 2) // 3
+        advanced = new_start > self.transcript_start_sequence
+        if advanced:
+            self.transcript_start_sequence = new_start
+            self.acknowledged_sequence = new_start
         # Old terminal output is embedded in committed user messages.  Dropping
         # it from the cursor alone would not reduce the next provider request.
         # Preserve the question/assistant conversation while replacing only
         # discarded terminal bytes with an explicit marker.
-        self.history = [
-            ChatMessage(
-                message.role,
-                _TERMINAL_CONTEXT_RE.sub(
-                    "<terminal_context>\n(older terminal context compacted)\n</terminal_context>",
-                    message.content,
-                ) if message.role == "user" else message.content,
-            )
-            for message in self.history
-        ]
-        return new_start
+        if advanced:
+            self.history = [
+                ChatMessage(
+                    message.role,
+                    _TERMINAL_CONTEXT_RE.sub(
+                        "<terminal_context>\n(older terminal context compacted)\n</terminal_context>",
+                        message.content,
+                    ) if message.role == "user" else message.content,
+                )
+                for message in self.history
+            ]
+
+        self._compaction_passes += 1
+        if self.pending_slice is not None:
+            self.rebase_pending_slice_after_compaction()
+            # A single event may contain most of the request. Sequence-based
+            # rebasing cannot reduce that event, so retain its newest bytes as
+            # the blueprint permits. Repeated calls progressively reduce it.
+            text = self.pending_slice.text
+            if self._compaction_passes == 1 and not advanced:
+                retained = text[-max(1, len(text) // 3):]
+            elif self._compaction_passes > 1:
+                retained = text[-max(1, len(text) // 2):]
+            else:
+                retained = ""
+            if retained:
+                self.pending_slice = TranscriptSlice(
+                    self.pending_slice.start_sequence,
+                    self.pending_slice.end_sequence,
+                    _COMPACTION_MARKER + retained,
+                )
+        return self.transcript_start_sequence
 
     def get_unacknowledged_count(self) -> int:
         """Return the number of unacknowledged terminal events."""

@@ -14,8 +14,9 @@ from .llm.openai_compatible import OpenAICompatibleClient
 from .llm.prompt import build_request
 from .terminal.pane import TerminalPane
 from .terminal.output_capturer import TerminalOutputCapturer
+from .terminal.capture_server import CaptureServer
 from .terminal.transcript_store import TranscriptStore
-from .terminal.transcript import estimate_tokens, bound_transcript, normalize_transcript
+from .terminal.transcript import estimate_tokens
 import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio
@@ -61,17 +62,18 @@ class TriageWindow:
         # Phase 1: Context session state machine
         self.transcript_store = TranscriptStore()
         self.context_session = ContextSession(transcript=self.transcript_store)
+        self.output_capturer = TerminalOutputCapturer(transcript_store=self.transcript_store)
+        self.capture_server = CaptureServer(self.output_capturer)
+        capture_socket_path = self.capture_server.start()
         self.font_size = self.config.terminal_font_size  # Synced font size for both panes
-        self.terminal_pane = TerminalPane(self._vte.Terminal(), shell=self.config.shell, vte=self._vte)
+        self.terminal_pane = TerminalPane(
+            self._vte.Terminal(), shell=self.config.shell,
+            capture_socket_path=capture_socket_path, vte=self._vte,
+        )
         self.terminal_pane.widget.add_css_class("terminal-frame")
         self.terminal_pane.spawn(self._vte)
         # Initialize terminal font from config
         self._update_terminal_font()
-        # Phase 2: Output capturer sink (no start/stop — PTY proxy drives it in Phase 3)
-        self.output_capturer = TerminalOutputCapturer(
-            transcript_store=self.transcript_store
-        )
-
         # Connect scroll event handler to terminal for Ctrl+scroll zoom using EventControllerScroll
         terminal_scroll_controller = self._gtk.EventControllerScroll.new(
             self._gtk.EventControllerScrollFlags.BOTH_AXES
@@ -116,9 +118,6 @@ class TriageWindow:
         self.question_key_controller = self._gtk.EventControllerKey.new()
         self.question_key_controller.connect("key-pressed", self._on_question_key_pressed)
         self.question.add_controller(self.question_key_controller)
-        # Terminal context always included; checkbox hidden for backward compatibility
-        self.include_context = self._gtk.CheckButton(label="Include recent terminal context", active=True)
-        self.include_context.set_visible(False)
         self.send_button = self._gtk.Button(label="Send")
         self.send_button.set_halign(self._gtk.Align.END)
         self.send_button.connect("clicked", self._send_question)
@@ -132,7 +131,6 @@ class TriageWindow:
         chat.append(self.response_scroll)
         chat.append(self.status_label)
         chat.append(self.context_used_label)
-        chat.append(self.include_context)
         context = self._gtk.Expander(label="Context")
         context_box = self._gtk.Box(orientation=self._gtk.Orientation.VERTICAL, spacing=6)
         context_box.set_margin_top(6)
@@ -171,7 +169,12 @@ class TriageWindow:
         split = self._gtk.Paned(orientation=self._gtk.Orientation.HORIZONTAL)
         split.set_start_child(self.terminal_pane.widget); split.set_end_child(chat); split.set_position(760)
         self.window.set_child(split)
+        self.window.connect("close-request", self._on_window_close)
         self.window.present()
+
+    def _on_window_close(self, _window: object) -> bool:
+        self.capture_server.stop()
+        return False
 
     def run(self) -> None:
         self.application.run(None)
@@ -183,6 +186,13 @@ class TriageWindow:
             return
         if self.cancel_event is not None:
             return
+        capture_server = getattr(self, "capture_server", None)
+        if capture_server is not None:
+            try:
+                capture_server.ensure_healthy()
+            except Exception as exc:
+                self.status_label.set_text(f"Terminal capture failed: {exc}")
+                return
         self.question.set_sensitive(False)
         self.send_button.set_sensitive(False)
         self.cancel_button.set_visible(True)
@@ -200,16 +210,34 @@ class TriageWindow:
                                 system_prompt=self.config.system_prompt,
                                 history=tuple(self.context_session.history))
         total_estimated = sum(estimate_tokens(message.content) for message in request.messages)
-        if total_estimated > self.config.max_context_tokens * 0.8:  # 80% threshold
+        if total_estimated > self.config.max_context_tokens:
             self.context_session.compact(self.config.max_context_tokens)
-            # Rebase to the compacted start without moving this request's
-            # atomic end boundary forward.
-            self.context_session.rebase_pending_slice_after_compaction()
             payload_transcript = self.context_session.build_request_payload()
             request = build_request(model=self.config.model, question=question, transcript=payload_transcript,
                                     max_tokens=self.config.max_context_tokens,
                                     system_prompt=self.config.system_prompt,
                                     history=tuple(self.context_session.history))
+            total_estimated = sum(estimate_tokens(message.content) for message in request.messages)
+
+            while total_estimated > self.config.max_context_tokens and self.context_session.pending_slice is not None:
+                previous_payload = payload_transcript
+                self.context_session.compact(self.config.max_context_tokens)
+                payload_transcript = self.context_session.build_request_payload()
+                if payload_transcript == previous_payload:
+                    break
+                request = build_request(model=self.config.model, question=question, transcript=payload_transcript,
+                                        max_tokens=self.config.max_context_tokens,
+                                        system_prompt=self.config.system_prompt,
+                                        history=tuple(self.context_session.history))
+                total_estimated = sum(estimate_tokens(message.content) for message in request.messages)
+
+            if total_estimated > self.config.max_context_tokens:
+                self.context_session.rollback_on_failure()
+                self.status_label.set_text("Terminal context exceeds provider context limit after compaction")
+                self.question.set_sensitive(True)
+                self.send_button.set_sensitive(True)
+                self.cancel_button.set_visible(False)
+                return
 
         # Store the user message we are sending.
         self.context_session.snapshot_for_send(request.messages[-1])
@@ -439,7 +467,7 @@ class TriageWindow:
         )
 
         # Update button font sizes
-        for button in [self.send_button, self.cancel_button, self.include_context]:
+        for button in [self.send_button, self.cancel_button]:
             css_provider = self._gtk.CssProvider()
             css_data = f"button {{ font-family: {font_name}; font-size: {self.font_size}px; }}"
             css_provider.load_from_data(css_data.encode())

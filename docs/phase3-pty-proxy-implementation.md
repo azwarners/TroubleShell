@@ -188,9 +188,17 @@ the packet is at most 64 KiB.
 ## Implementation tasks
 
 Do these in order. Each task must include the stated tests before starting the
-next task. Run the full test suite after every numbered section.
+next task. Run the full test suite after every numbered section. **A task may
+change only its listed production files and its listed tests.** Do not "clean
+up" nearby APIs, compaction, prompt formatting, configuration, documentation,
+or later-task files while completing it. If a task genuinely cannot proceed,
+stop and report the exact blocking file, line, failing test, and proposed
+minimal change.
 
 ### 1. Lock the store and make request snapshots atomic
+
+**Complete. Do not reopen this task during Phase 3.** Its regression tests are
+`tests/test_transcript_store_concurrency.py`.
 
 1. Add a private `RLock` field to `TranscriptStore` using
    `field(default_factory=threading.RLock, init=False, repr=False)`.
@@ -208,6 +216,13 @@ next task. Run the full test suite after every numbered section.
 
 ### 2. Teach `ContextSession` to use one snapshot result
 
+**Complete. Do not reopen this task during Phase 3.** Its regression tests are
+`tests/test_request_slice_atomic.py`. A send calls `request_slice()` exactly
+once. If compaction changes the retained start,
+`rebase_pending_slice_after_compaction()` may change only the pending slice's
+start; it must retain its original end sequence. It must never call
+`snapshot_slice()` or read `next_sequence`.
+
 1. Add a method such as `snapshot_payload_for_send()` that calls
    `transcript.snapshot_slice(self.acknowledged_sequence)` exactly once.
 2. Set `pending_request_end_sequence` from the returned slice end.
@@ -219,6 +234,22 @@ next task. Run the full test suite after every numbered section.
    the next turn.
 
 ### 3. Add the parent-side capture server
+
+**Allowed production file:**
+
+```text
+/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/capture_server.py  (new)
+```
+
+**Allowed test file:**
+
+```text
+/home/nick/ServerData/repos/triagetty/tests/test_capture_server.py  (new)
+```
+
+Do not modify `window.py`, `pane.py`, `pty_proxy.py`, `ContextSession`,
+`TranscriptStore`, or any existing tests in this task. This task proves parent
+IPC only; nothing in the GUI is wired yet.
 
 1. Create `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/capture_server.py` with a GTK-free `CaptureServer` class.
 2. Constructor accepts a `TerminalOutputCapturer` and an optional temporary
@@ -239,8 +270,29 @@ next task. Run the full test suite after every numbered section.
    - a split UTF-8 character across two packets decodes in a slice;
    - disconnect closes cleanly;
    - server socket failure becomes observable through `ensure_healthy()`.
+8. The test must wait on an explicit server test hook or a bounded polling
+   helper before inspecting `TranscriptStore`; it must never use `sleep()` as
+   synchronization. Tests must call `stop()` in `finally` or fixture teardown.
+9. Task-3 report must include only: changed paths, focused-test result, and
+   full-suite result. Stop after that report.
 
 ### 4. Implement proxy mechanics without GTK wiring
+
+**Allowed production file:**
+
+```text
+/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pty_proxy.py  (new)
+```
+
+**Allowed test file:**
+
+```text
+/home/nick/ServerData/repos/triagetty/tests/test_pty_proxy_unit.py  (new)
+```
+
+Do not wire the proxy to VTE, modify `TerminalPane`, add a capture server, or
+write subprocess integration tests in this task. This task is only pure proxy
+helpers and an importable CLI/relay implementation.
 
 1. Create `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pty_proxy.py`; it must be importable with no GTK imports.
 2. Add `main(argv: Sequence[str] | None = None) -> int` using `argparse` for
@@ -256,8 +308,21 @@ next task. Run the full test suite after every numbered section.
 5. Emit proxy diagnostics only to stderr, never to the capture socket.
 6. Add `tests/test_pty_proxy_unit.py` for helpers, including partial writes and
    a monkeypatched capture send failure that terminates the relay.
+7. Test the module imports with no `gi` module available. Test `main()` argument
+   validation without starting a real shell. Stop after the focused and full
+   suites pass.
 
 ### 5. Add proxy integration tests with real children
+
+**Allowed files:**
+
+```text
+/home/nick/ServerData/repos/triagetty/tests/test_pty_proxy_integration.py  (new)
+```
+
+If a narrowly necessary test seam is missing in `capture_server.py` or
+`pty_proxy.py`, stop and request approval before modifying it. Do not touch GTK
+wiring in this task.
 
 1. Add `tests/test_pty_proxy_integration.py`. It starts `CaptureServer` and
    invokes the proxy in a subprocess with pipes for the proxy's stdin/stdout.
@@ -278,6 +343,21 @@ next task. Run the full test suite after every numbered section.
 
 ### 6. Wire proxy spawning into `TerminalPane`
 
+**Allowed production file:**
+
+```text
+/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pane.py
+```
+
+**Allowed test file:**
+
+```text
+/home/nick/ServerData/repos/triagetty/tests/test_terminal_pane.py
+```
+
+Do not construct a `CaptureServer` here; that belongs to Task 7. Do not change
+the application window or context session.
+
 1. Change `TerminalPane.__init__` to accept `capture_socket_path: str` and
    save it. Do not add a transcript-reading method.
 2. Change `spawn()` to call VTE `spawn_async` with:
@@ -292,6 +372,21 @@ next task. Run the full test suite after every numbered section.
    callers in the canonical context path.
 
 ### 7. Wire lifecycle in `TriageWindow`
+
+**Allowed production file:**
+
+```text
+/home/nick/ServerData/repos/triagetty/src/triagetty/window.py
+```
+
+**Allowed test file:**
+
+```text
+/home/nick/ServerData/repos/triagetty/tests/test_phase0_xfail.py
+```
+
+No proxy protocol changes, no store/session changes, and no documentation
+changes belong here. Make the smallest lifecycle wiring change only.
 
 1. Construct `TranscriptStore`, `TerminalOutputCapturer`, and `CaptureServer`
    before constructing/spawning `TerminalPane`.
@@ -308,6 +403,11 @@ next task. Run the full test suite after every numbered section.
    text snapshot.
 
 ### 8. Replace the Phase 3 marker with end-to-end acceptance coverage
+
+**Allowed files:** the new or existing Phase 3 integration tests and the one
+deferred marker in `tests/test_phase0_xfail.py`. Do not alter production code
+unless an acceptance test identifies a specific defect; if it does, stop and
+report the defect before fixing it.
 
 1. Remove the strict Phase 3 xfail only when the real integration test exists.
 2. Add a test that starts a VTE terminal through the proxy with a deliberately

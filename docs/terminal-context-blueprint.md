@@ -214,9 +214,9 @@ The Context panel should show:
 - a durable compaction notice: `Discarded terminal events 1–800; retained
   801–1200 because the provider context limit was reached.`
 
-Do not show a hidden context checkbox. If context is an invariant of the
-product, make the behavior explicit in copy rather than pretending it is an
-optional bounded snapshot.
+Do not show a context checkbox. Context is an invariant of the product, and
+normal turns are untrimmed; explicit whole-request compaction is the only
+capacity-based removal.
 
 ## Proposed module boundaries
 
@@ -246,6 +246,11 @@ The settled Phase 3 design and its deliberately small implementation tasks are
 in [Phase 3 implementation playbook](phase3-pty-proxy-implementation.md).
 That playbook is authoritative for proxy process boundaries, IPC transport,
 threading, and task order.
+
+After Phase 3 is accepted, use the [Phase 4 cleanup implementation
+playbook](phase4-cleanup-implementation.md). It is authoritative for removing
+old bounded-snapshot behavior and documentation without disturbing capture or
+request-lifecycle semantics.
 
 ### Phase 0: lock the contract with tests
 

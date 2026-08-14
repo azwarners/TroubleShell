@@ -61,13 +61,7 @@ class FakeGTK:
 
 
 class FakeTerminalPane:
-    """Fake terminal pane that records transcript reads."""
-    
-    def __init__(self):
-        self._full_transcript = ""
-    
-    def _get_full_transcript(self):
-        return self._full_transcript
+    """Fake terminal pane; context comes from the session/store."""
 
 
 class FakeConfig:

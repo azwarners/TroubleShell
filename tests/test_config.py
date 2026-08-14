@@ -5,7 +5,7 @@ Targets config loading/saving edge cases and persistence.
 
 import pytest
 from pathlib import Path
-from triagetty.config import Config, config_path, load_config, save_config, _toml_value
+from triagetty.config import Config, config_path, load_config, save_config, _toml_value, DEFAULT_SYSTEM_PROMPT
 
 
 def test_config_default_values() -> None:
@@ -20,6 +20,12 @@ def test_config_default_values() -> None:
     assert config.terminal_font_size == 10
     assert config.chat_font_size == 10
     assert config.verify_tls is True
+
+
+def test_default_prompt_describes_captured_context() -> None:
+    assert "bounded snapshot" not in DEFAULT_SYSTEM_PROMPT.lower()
+    assert "recent terminal" not in DEFAULT_SYSTEM_PROMPT.lower()
+    assert "provider context limit" in DEFAULT_SYSTEM_PROMPT.lower()
 
 
 def test_config_custom_values() -> None:

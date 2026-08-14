@@ -2,7 +2,7 @@
 
 **Two minds. One terminal. You stay in control.**
 
-TriageTTY is a native Linux desktop terminal with an AI troubleshooting pane. It shares a bounded snapshot of recent terminal output only when you submit a question, sends that context to an OpenAI-compatible model endpoint, and renders suggested shell commands as **Insert** and **Copy** controls.
+TriageTTY is a native Linux desktop terminal with an AI troubleshooting pane. It captures ordered shell output through a PTY proxy and includes that context when you submit a question. Normal turns are untrimmed; explicit compaction occurs only when the complete request approaches the provider context limit. Suggested shell commands appear as **Insert** and **Copy** controls.
 
 TriageTTY is deliberately not an autonomous agent. The model cannot execute commands, browse files, call tools, or inspect the host directly. **Insert** only places command text into the terminal input; it never presses Enter.
 
@@ -13,7 +13,7 @@ TriageTTY 0.1.0 is a working Linux desktop MVP. It provides:
 
 - an embedded GTK 4/VTE terminal;
 - a current-session troubleshooting chat;
-- configurable bounded terminal-context sharing;
+  - ordered PTY-captured terminal context with provider-limit compaction;
 - a configurable OpenAI-compatible chat-completions client;
 - an editable Linux administrator system prompt;
 - safe rendering of a deliberately small Markdown subset;
@@ -74,32 +74,28 @@ The file contains the endpoint, model, API key field, TLS setting, shell, contex
 endpoint_url = "http://<IP address>:<port #>/v1"
 model = "<model alias>"
 api_key = ""
-context_line_limit = 200
-context_character_limit = 12000
 verify_tls = true
 ```
 
-The Settings expander in the application currently exposes the context line slider. The endpoint, model, TLS setting, and system prompt can be edited directly in `config.toml`; restart TriageTTY after changing them.
+The endpoint, model, TLS setting, shell, provider context limit, and system prompt can be edited directly in `config.toml`; restart TriageTTY after changing them.
 
 The API key field is persisted locally when used. Treat the configuration file as sensitive and keep its permissions restricted. Desktop keyring integration is a future improvement.
 
 ## Use TriageTTY
 
 1. Run commands normally in the embedded terminal.
-2. Adjust the terminal-context slider if you want to share fewer or more recent lines.
-3. Leave **Include recent terminal context** enabled when the model should see the bounded snapshot.
-4. Ask a troubleshooting question in the multiline chat field.
-5. Review the displayed context count and the model’s explanation.
-6. Review any suggested command before selecting **Insert** or **Copy**.
-7. If inserted, edit the command in the terminal and press Enter yourself.
+2. Ask a troubleshooting question in the multiline chat field.
+3. Review the captured context and the model’s explanation.
+4. Review any suggested command before selecting **Insert** or **Copy**.
+5. If inserted, edit the command in the terminal and press Enter yourself.
 
-The chat pane reports the number of lines and approximate tokens sent for each request. The model receives context only at submission time; TriageTTY does not continuously stream terminal output.
+The chat pane reports context information for each request. The model receives context only at submission time; TriageTTY does not continuously stream terminal output. Context is compacted as one whole request only near the provider limit.
 
 ## Safety boundary and known limitations
 
 The model is a recommendation service, not an agent. TriageTTY has no tool calling, function calling, filesystem browsing, repository analysis, command interception, autonomous loop, or automatic execution path.
 
-Terminal output can contain passwords, tokens, hostnames, paths, and other sensitive information. Review the context-sharing toggle and output before sending it to a remote endpoint. The system prompt treats terminal text as untrusted data, but prompt-injection defenses are not a security guarantee.
+Terminal output can contain passwords, tokens, hostnames, paths, and other sensitive information. Review the captured output before sending it to a remote endpoint. The system prompt treats terminal text as untrusted data, but prompt-injection defenses are not a security guarantee.
 
 The Cancel control prevents a completed or stale response from being displayed, while an already-started HTTP request may continue until its timeout. API-key keyring storage, transcript redaction, richer Markdown, and broader packaging are intentionally left for later releases.
 

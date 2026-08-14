@@ -5,12 +5,12 @@ TriageTTY is a small, standalone GTK 4 application. Its architecture is intentio
 ## Runtime data flow
 
 ```text
-User types in VTE
+Shell output
         |
         v
-TerminalPane -- on submit only --> bounded transcript
-        |                                  |
-        +--------------------------> prompt builder
+PTY proxy --> CaptureServer --> TranscriptStore --> ContextSession
+        |                                                |
+        +--> VTE display                            prompt builder
                                            |
                                     ChatRequest
                                            |
@@ -33,26 +33,31 @@ TerminalPane -- on submit only --> bounded transcript
 
 `terminal/pane.py` is the narrow VTE adapter. It:
 
-- launches the configured user shell;
-- reads terminal scrollback only when the user submits a question;
-- uses VTE's GTK 4 full-range text API when available;
-- delegates normalization and bounds to `terminal/transcript.py`; and
+- launches the configured shell through the PTY proxy;
+- displays the identical bytes forwarded by the proxy; and
 - inserts UTF-8 command text with `feed_child()` without appending a newline.
+
+The proxy sends shell output to the parent CaptureServer before forwarding it
+to VTE. The parent appends packets unchanged to the locked TranscriptStore;
+VTE scrollback is display-only and is never a model-context source.
 
 There is intentionally no `run_command()` method. Pressing Enter remains a human action in the terminal.
 
 ## Context construction
 
-`terminal/transcript.py` normalizes line endings, removes obvious control noise, retains the newest content, and applies both the configured line and character limits. The line slider is the user-facing control; the character limit remains a quiet upper bound.
+`llm/context_session.py` selects the complete unacknowledged captured event
+range for each request. Normal turns do not trim terminal text. When the full
+request approaches the provider context limit, ContextSession performs one
+explicit whole-request compaction and retains the newest terminal third.
 
 `llm/prompt.py` builds a deterministic request containing:
 
 - the editable system prompt from configuration;
 - prior user and assistant messages for the current session;
-- a `<terminal_context>` envelope containing the bounded snapshot; and
+- a `<terminal_context>` envelope containing the selected captured transcript; and
 - a `<user_question>` envelope containing the new question.
 
-The terminal snapshot is explicitly labeled as untrusted observational data. It is not continuously sent to the model and is not interpreted by TriageTTY as shell syntax.
+The captured terminal transcript is explicitly labeled as untrusted observational data. It is not continuously sent to the model and is not interpreted by TriageTTY as shell syntax.
 
 ## Provider boundary
 
@@ -78,6 +83,9 @@ GTK and VTE are system dependencies accessed through PyGObject. TriageTTY does n
 
 ## Security posture
 
-The main consent boundary is terminal-context sharing: the user chooses whether to include a bounded snapshot for each question. The main execution boundary is command insertion: the model can suggest text, but the user must review and execute it.
+The main evidence boundary is PTY capture and request construction: captured
+terminal output is included with each request and compacted only at the provider
+limit. The main execution boundary is command insertion: the model can suggest
+text, but the user must review and execute it.
 
 The application does not provide a guarantee that terminal text cannot influence a model, that a suggested command is safe, or that a configured endpoint retains no data. Those are deployment and provider-policy concerns documented further in [threat-model.md](threat-model.md).
