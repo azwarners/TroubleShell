@@ -80,6 +80,7 @@ class TriageWindow:
         )
         terminal_scroll_controller.connect("scroll", self._on_terminal_scroll)
         self.terminal_pane.widget.add_controller(terminal_scroll_controller)
+        self._configure_terminal_clipboard()
 
         self.response_box = self._gtk.Box(orientation=self._gtk.Orientation.VERTICAL, spacing=10)
         self.response_box.set_margin_top(8)
@@ -172,6 +173,44 @@ class TriageWindow:
         self.window.connect("close-request", self._on_window_close)
         self.window.present()
 
+    def _configure_terminal_clipboard(self) -> None:
+        """Install VTE-native clipboard actions and explicit shortcuts."""
+        terminal = self.terminal_pane.widget
+
+        actions = Gio.SimpleActionGroup()
+        copy_action = Gio.SimpleAction.new("copy", None)
+        copy_action.connect("activate", lambda *_args: terminal.copy_clipboard())
+        paste_action = Gio.SimpleAction.new("paste", None)
+        paste_action.connect("activate", lambda *_args: terminal.paste_clipboard())
+        actions.add_action(copy_action)
+        actions.add_action(paste_action)
+        terminal.insert_action_group("terminal", actions)
+
+        menu = Gio.Menu()
+        menu.append("Copy", "terminal.copy")
+        menu.append("Paste", "terminal.paste")
+        terminal.set_context_menu_model(menu)
+
+        key_controller = self._gtk.EventControllerKey.new()
+        key_controller.set_propagation_phase(self._gtk.PropagationPhase.CAPTURE)
+        key_controller.connect("key-pressed", self._on_terminal_key_pressed)
+        terminal.add_controller(key_controller)
+        self.terminal_key_controller = key_controller
+
+    def _on_terminal_key_pressed(self, _controller: object, key: int,
+                                 _keycode: int, state: int) -> bool:
+        modifier_type = self._gdk.ModifierType
+        other_modifiers = (modifier_type.ALT_MASK | modifier_type.SUPER_MASK |
+                           modifier_type.HYPER_MASK | modifier_type.META_MASK)
+        return self.terminal_pane.handle_clipboard_key(
+            key, state,
+            control_mask=modifier_type.CONTROL_MASK,
+            shift_mask=modifier_type.SHIFT_MASK,
+            other_modifier_mask=other_modifiers,
+            copy_key=(self._gdk.KEY_c, self._gdk.KEY_C),
+            paste_key=(self._gdk.KEY_v, self._gdk.KEY_V),
+        )
+
     def _on_window_close(self, _window: object) -> bool:
         self.capture_server.stop()
         return False
@@ -190,6 +229,10 @@ class TriageWindow:
         if capture_server is not None:
             try:
                 capture_server.ensure_healthy()
+                # The proxy acknowledges after all output it has already
+                # displayed has reached TranscriptStore.  Without this
+                # barrier, a click can race the capture-reader thread.
+                capture_server.synchronize()
             except Exception as exc:
                 self.status_label.set_text(f"Terminal capture failed: {exc}")
                 return
@@ -243,6 +286,7 @@ class TriageWindow:
         self.context_session.snapshot_for_send(request.messages[-1])
 
         client = OpenAICompatibleClient(base_url=self.config.endpoint_url, api_key=self.config.api_key,
+                                        timeout=getattr(self.config, "request_timeout", None),
                                         verify_tls=self.config.verify_tls)
         self.request_id += 1
         request_id = self.request_id

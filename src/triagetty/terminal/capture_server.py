@@ -5,10 +5,15 @@ from __future__ import annotations
 import socket
 import tempfile
 import threading
+import uuid
 from pathlib import Path
 from typing import Literal
 
 from .output_capturer import TerminalOutputCapturer
+from .capture_protocol import decode_parent_packet, max_frame_overhead, sync_packet
+
+
+_MAX_CAPTURE_PACKET = (64 * 1024) + max_frame_overhead()
 
 
 class CaptureServer:
@@ -28,6 +33,7 @@ class CaptureServer:
         self._thread: threading.Thread | None = None
         self._lock = threading.RLock()
         self._stopping = False
+        self._sync_waiters: dict[bytes, threading.Event] = {}
 
     def start(self) -> str:
         with self._lock:
@@ -70,20 +76,64 @@ class CaptureServer:
             self.connected.set()
             with connection:
                 while True:
-                    packet = connection.recv(65536)
+                    packet = connection.recv(_MAX_CAPTURE_PACKET)
                     if not packet:
                         with self._lock:
                             if self.state != "failed":
                                 self.state = "closed"
+                            self._release_sync_waiters()
                         return
-                    self.capturer.record_output(packet)
+                    kind, payload = decode_parent_packet(packet)
+                    if kind == "output":
+                        self.capturer.record_output(payload)
+                    elif kind == "sync-ack":
+                        with self._lock:
+                            waiter = self._sync_waiters.pop(payload, None)
+                        if waiter is not None:
+                            waiter.set()
         except Exception as exc:
             with self._lock:
                 if not self._stopping:
                     self.failure = exc
                     self.state = "failed"
+                self._release_sync_waiters()
         finally:
             self.finished.set()
+
+    def _release_sync_waiters(self) -> None:
+        """Wake pending barriers when the connection can no longer answer."""
+        waiters = tuple(self._sync_waiters.values())
+        self._sync_waiters.clear()
+        for waiter in waiters:
+            waiter.set()
+
+    def synchronize(self, timeout: float = 1.0) -> None:
+        """Wait until output already displayed by the proxy is in the store.
+
+        The proxy drains shell output available at the barrier, then replies on
+        its ordered seqpacket connection.  Since this reader processes packets
+        in order, receiving that reply means every earlier output packet has
+        reached ``TerminalOutputCapturer``.  This closes the screen-to-store
+        race immediately before a model-request snapshot.
+        """
+        token = uuid.uuid4().bytes
+        waiter = threading.Event()
+        with self._lock:
+            if self.state != "connected" or self._connection is None:
+                self.ensure_healthy()
+                raise RuntimeError("terminal output capture is not connected")
+            connection = self._connection
+            self._sync_waiters[token] = waiter
+            try:
+                connection.send(sync_packet(token))
+            except Exception:
+                self._sync_waiters.pop(token, None)
+                raise
+        if not waiter.wait(timeout):
+            with self._lock:
+                self._sync_waiters.pop(token, None)
+            raise RuntimeError("terminal output capture did not synchronize in time")
+        self.ensure_healthy()
 
     def ensure_healthy(self) -> None:
         with self._lock:
@@ -106,6 +156,7 @@ class CaptureServer:
             self._listener = None
             self._thread = None
             self._directory = None
+            self._release_sync_waiters()
         for sock in (connection, listener):
             if sock is not None:
                 try:

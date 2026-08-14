@@ -15,6 +15,7 @@ def test_config_default_values() -> None:
     assert config.model == "llama3.2"
     assert config.api_key == ""
     assert config.max_context_tokens == 8000
+    assert config.request_timeout is None
     assert config.shell == "/bin/bash"
     assert config.terminal_font == "Monospace 10"
     assert config.terminal_font_size == 10
@@ -35,6 +36,7 @@ def test_config_custom_values() -> None:
         model="custom-model",
         api_key="secret",
         max_context_tokens=120000,
+        request_timeout=90,
         shell="/bin/zsh",
         terminal_font="Monospace 12",
         terminal_font_size=14,
@@ -45,6 +47,7 @@ def test_config_custom_values() -> None:
     assert config.model == "custom-model"
     assert config.api_key == "secret"
     assert config.max_context_tokens == 120000
+    assert config.request_timeout == 90
     assert config.shell == "/bin/zsh"
     assert config.terminal_font == "Monospace 12"
     assert config.terminal_font_size == 14
@@ -124,6 +127,18 @@ def test_load_config_with_partial_values(tmp_path: Path) -> None:
     assert config.api_key == ""
 
 
+def test_load_config_supports_configurable_request_timeout(tmp_path: Path) -> None:
+    config_path = tmp_path / "timeout.toml"
+    config_path.write_text('request_timeout = 180\n')
+    assert load_config(config_path).request_timeout == 180
+
+
+def test_load_config_supports_unlimited_request_timeout(tmp_path: Path) -> None:
+    config_path = tmp_path / "unlimited.toml"
+    config_path.write_text('request_timeout = "none"\n')
+    assert load_config(config_path).request_timeout is None
+
+
 def test_load_config_ignores_unknown_keys(tmp_path: Path) -> None:
     """Config should ignore unknown keys."""
     config_path = tmp_path / "unknown_keys.toml"
@@ -173,6 +188,10 @@ def test_toml_value_handles_integers() -> None:
     """Integers should be rendered as strings."""
     assert _toml_value(42) == "42"
     assert _toml_value(0) == "0"
+
+
+def test_toml_value_handles_unlimited_timeout() -> None:
+    assert _toml_value(None) == '"none"'
 
 
 def test_save_config_creates_directories(tmp_path: Path) -> None:

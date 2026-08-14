@@ -1,6 +1,10 @@
+import os
+import pty
+import select
 import subprocess
 import sys
 import threading
+import termios
 import time
 
 from triagetty.terminal.capture_server import CaptureServer
@@ -15,6 +19,131 @@ def wait_for(predicate):
             return
         threading.Event().wait(0.01)
     raise AssertionError("condition was not reached")
+
+
+def test_proxy_owns_outer_pty_relay_and_restores_termios(tmp_path):
+    wrapper = tmp_path / "interactive-shell"
+    wrapper.write_text("#!/bin/sh\nPS1=; export PS1\nprintf 'READY\\n'\nexec /bin/sh -i\n")
+    wrapper.chmod(0o700)
+    command = b"pwd; exit"
+    outer_master, outer_slave = pty.openpty()
+    original_outer_attrs = termios.tcgetattr(outer_slave)
+    test_outer_attrs = original_outer_attrs.copy()
+    test_outer_attrs[1] &= ~termios.OPOST
+    termios.tcsetattr(outer_slave, termios.TCSANOW, test_outer_attrs)
+    relay_baseline_attrs = termios.tcgetattr(outer_slave)
+    store = TranscriptStore()
+    server = CaptureServer(TerminalOutputCapturer(store), temp_dir_parent=tmp_path)
+    path = server.start()
+    proc = None
+    displayed = bytearray()
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+             "--shell", str(wrapper)],
+            stdin=outer_slave, stdout=outer_slave, stderr=subprocess.PIPE,
+        )
+        deadline = time.monotonic() + 5
+        while b"READY\r\n" not in displayed and time.monotonic() < deadline:
+            readable, _, _ = select.select([outer_master], [], [], 0.1)
+            if readable:
+                displayed.extend(os.read(outer_master, 65536))
+        assert b"READY\r\n" in displayed
+        os.write(outer_master, command + b"\n")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            remaining = max(0.0, deadline - time.monotonic())
+            readable, _, _ = select.select([outer_master], [], [], min(0.1, remaining))
+            if readable:
+                try:
+                    displayed.extend(os.read(outer_master, 65536))
+                except OSError:
+                    break
+            if proc.poll() is not None:
+                break
+        proc.wait(timeout=5)
+        for _ in range(10):
+            readable, _, _ = select.select([outer_master], [], [], 0.05)
+            if not readable:
+                break
+            try:
+                displayed.extend(os.read(outer_master, 65536))
+            except OSError:
+                break
+        stderr = proc.stderr.read() if proc.stderr is not None else b""
+        assert proc.returncode == 0, stderr.decode(errors="replace")
+        assert displayed.count(command) == 1
+        expected = command + b"\r\n" + os.getcwd().encode()
+        assert expected in displayed
+        assert command + b"\r\n\r\n" + os.getcwd().encode() not in displayed
+        assert termios.tcgetattr(outer_slave) == relay_baseline_attrs
+    finally:
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+        if outer_slave >= 0:
+            os.close(outer_slave)
+        os.close(outer_master)
+        server.stop()
+
+
+def test_proxy_forwards_ctrl_c_without_terminating(tmp_path):
+    wrapper = tmp_path / "ctrl-c-shell"
+    wrapper.write_bytes(
+        b"#!/usr/bin/env python3\n"
+        b"import os, termios\n"
+        b"attrs = termios.tcgetattr(0)\n"
+        b"attrs[3] &= ~(termios.ICANON | termios.ISIG)\n"
+        b"attrs[6][termios.VMIN] = 1; attrs[6][termios.VTIME] = 0\n"
+        b"termios.tcsetattr(0, termios.TCSANOW, attrs)\n"
+        b"os.write(1, b'READY\\n')\n"
+        b"value = os.read(0, 1)\n"
+        b"os.write(1, b'CTRL_C_FORWARDED\\n' if value == b'\\x03' else b'WRONG_BYTE\\n')\n"
+    )
+    wrapper.chmod(0o700)
+    outer_master, outer_slave = pty.openpty()
+    outer_attrs = termios.tcgetattr(outer_slave)
+    outer_attrs[1] &= ~termios.OPOST
+    termios.tcsetattr(outer_slave, termios.TCSANOW, outer_attrs)
+    store = TranscriptStore()
+    server = CaptureServer(TerminalOutputCapturer(store), temp_dir_parent=tmp_path)
+    path = server.start()
+    proc = None
+    displayed = bytearray()
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+             "--shell", str(wrapper)],
+            stdin=outer_slave, stdout=outer_slave, stderr=subprocess.PIPE,
+        )
+        os.close(outer_slave)
+        outer_slave = -1
+        deadline = time.monotonic() + 5
+        while b"READY\r\n" not in displayed and time.monotonic() < deadline:
+            readable, _, _ = select.select([outer_master], [], [], 0.1)
+            if readable:
+                displayed.extend(os.read(outer_master, 65536))
+        os.write(outer_master, b"\x03")
+        while proc.poll() is None and time.monotonic() < deadline:
+            readable, _, _ = select.select([outer_master], [], [], 0.1)
+            if readable:
+                try:
+                    displayed.extend(os.read(outer_master, 65536))
+                except OSError:
+                    break
+        proc.wait(timeout=5)
+        assert proc.returncode == 0
+        captured = b"".join(event.raw for event in store.events)
+        assert b"CTRL_C_FORWARDED\r\n" in captured
+        assert b"WRONG_BYTE" not in captured
+    finally:
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+        if outer_slave >= 0:
+            os.close(outer_slave)
+        os.close(outer_master)
+        server.stop()
 
 
 def test_proxy_captures_and_forwards_exact_shell_bytes(tmp_path):
@@ -127,6 +256,82 @@ def test_live_proxy_snapshot_boundary(tmp_path):
         server.stop()
 
 
+def test_interrupted_long_running_command_is_captured_before_each_snapshot(tmp_path):
+    """Visible live output survives both an in-flight question and Ctrl-C.
+
+    This is the real desktop sequence: an interactive shell runs a streaming
+    command, the user asks a question, then interrupts it and asks again.
+    ``CaptureServer.synchronize()`` is the screen-to-store barrier used by the
+    submission path, so each request snapshot includes output the user could
+    already see in the terminal.
+    """
+    wrapper = tmp_path / "interactive-shell"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "PS1='TRIAGE_PROMPT> '; export PS1\n"
+        "exec /bin/sh -i\n"
+    )
+    wrapper.chmod(0o700)
+    outer_master, outer_slave = pty.openpty()
+    attrs = termios.tcgetattr(outer_slave)
+    attrs[1] &= ~termios.OPOST
+    termios.tcsetattr(outer_slave, termios.TCSANOW, attrs)
+    store = TranscriptStore()
+    server = CaptureServer(TerminalOutputCapturer(store), temp_dir_parent=tmp_path)
+    path = server.start()
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+             "--shell", str(wrapper)],
+            stdin=outer_slave, stdout=outer_slave, stderr=subprocess.PIPE,
+        )
+        os.close(outer_slave)
+        outer_slave = -1
+        wait_for(lambda: b"TRIAGE_PROMPT> " in b"".join(event.raw for event in store.events))
+
+        os.write(
+            outer_master,
+            b"i=0; while :; do printf 'device-%03d\\n' \"$i\"; "
+            b"i=$((i + 1)); sleep 0.01; done\n",
+        )
+        wait_for(lambda: b"device-005\r\n" in b"".join(event.raw for event in store.events))
+
+        from triagetty.chat.models import ChatMessage
+        from triagetty.llm.context_session import ContextSession
+
+        session = ContextSession(store)
+        server.synchronize()
+        first = session.request_slice()
+        assert "device-000" in first.text
+        assert "device-005" in first.text
+        session.snapshot_for_send(ChatMessage("user", "question while command runs"))
+        session.commit_on_success("response")
+
+        wait_for(lambda: b"device-012\r\n" in b"".join(event.raw for event in store.events))
+        os.write(outer_master, b"\x03")
+        wait_for(
+            lambda: b"".join(event.raw for event in store.events).count(b"TRIAGE_PROMPT> ") >= 2
+        )
+
+        server.synchronize()
+        second = session.request_slice()
+        assert "device-012" in second.text
+        assert "device-000" not in second.text
+
+        os.write(outer_master, b"exit\n")
+        proc.wait(timeout=5)
+        assert proc.returncode == 0, proc.stderr.read().decode(errors="replace")
+    finally:
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+        if outer_slave >= 0:
+            os.close(outer_slave)
+        os.close(outer_master)
+        server.stop()
+
+
 def test_proxy_exits_when_capture_connection_disconnects(tmp_path):
     wrapper = tmp_path / "disconnect-shell"
     wrapper.write_bytes(
@@ -154,7 +359,7 @@ def test_proxy_exits_when_capture_connection_disconnects(tmp_path):
         connection.shutdown(2)
         connection.close()
         wait_for(lambda: server.state == "closed")
-        proc.stdin.write(b"x")
+        proc.stdin.write(b"x\n")
         proc.stdin.flush()
         proc.wait(timeout=5)
         assert proc.returncode != 0

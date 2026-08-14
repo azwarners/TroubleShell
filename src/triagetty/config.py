@@ -45,6 +45,8 @@ class Config:
     model: str = "llama3.2"
     api_key: str = ""
     max_context_tokens: int = 8000
+    # None disables the HTTP request timeout. TOML uses "none" for this value.
+    request_timeout: float | None = None
     shell: str = "/bin/bash"
     terminal_font: str = "Monospace 10"
     terminal_font_size: int = 10
@@ -68,6 +70,12 @@ def load_config(path: Path | None = None) -> Config:
     values = asdict(Config())
     allowed = {field.name for field in fields(Config)}
     values.update({key: value for key, value in raw.items() if key in allowed})
+    if isinstance(values["request_timeout"], str):
+        timeout = values["request_timeout"].strip().lower()
+        if timeout in {"none", "off", "disabled", "infinite"}:
+            values["request_timeout"] = None
+        else:
+            values["request_timeout"] = float(timeout)
     # Preserve the pre-settings-area name for existing local configurations.
     if "system_prompt" not in raw and "system_prompt_override" in raw:
         values["system_prompt"] = raw["system_prompt_override"] or DEFAULT_SYSTEM_PROMPT
@@ -75,6 +83,8 @@ def load_config(path: Path | None = None) -> Config:
 
 
 def _toml_value(value: object) -> str:
+    if value is None:
+        return '"none"'
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):

@@ -3,6 +3,11 @@ import threading
 import time
 import pytest
 
+from triagetty.terminal.capture_protocol import (
+    decode_proxy_packet,
+    output_packet,
+    sync_ack_packet,
+)
 from triagetty.terminal.capture_server import CaptureServer
 from triagetty.terminal.output_capturer import TerminalOutputCapturer
 from triagetty.terminal.transcript_store import TranscriptStore
@@ -67,6 +72,36 @@ def test_capture_server_records_reader_failure_and_preserves_it_on_stop(tmp_path
         assert server.state == "failed"
         with pytest.raises(RuntimeError):
             server.ensure_healthy()
+    finally:
+        client.close()
+        server.stop()
+
+
+def test_synchronize_waits_for_output_before_the_proxy_barrier(tmp_path):
+    """A model snapshot cannot overtake output already sent for display."""
+    store = TranscriptStore()
+    server = CaptureServer(TerminalOutputCapturer(store), temp_dir_parent=tmp_path)
+    path = server.start()
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    try:
+        client.connect(path)
+        wait_for(lambda: server.state == "connected")
+
+        def acknowledge_barrier() -> None:
+            packet = client.recv(1024)
+            kind, token = decode_proxy_packet(packet)
+            assert kind == "sync"
+            # On the proxy's ordered connection, this output is sent before
+            # the acknowledgement. The parent reader must append it first.
+            client.send(output_packet(b"visible-before-question\n"))
+            client.send(sync_ack_packet(token))
+
+        worker = threading.Thread(target=acknowledge_barrier)
+        worker.start()
+        server.synchronize()
+        worker.join(timeout=2)
+
+        assert store.get_slice(0, store.next_sequence).text == "visible-before-question\n"
     finally:
         client.close()
         server.stop()

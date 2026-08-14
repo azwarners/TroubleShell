@@ -75,9 +75,11 @@ endpoint_url = "http://<IP address>:<port #>/v1"
 model = "<model alias>"
 api_key = ""
 verify_tls = true
+# Unlimited by default; set a number of seconds to enable a request timeout.
+request_timeout = "none"
 ```
 
-The endpoint, model, TLS setting, shell, provider context limit, and system prompt can be edited directly in `config.toml`; restart TriageTTY after changing them.
+The endpoint, model, TLS setting, shell, provider context limit, request timeout, and system prompt can be edited directly in `config.toml`; restart TriageTTY after changing them. Set `request_timeout` to a number of seconds, or leave it as `"none"` for no timeout.
 
 The API key field is persisted locally when used. Treat the configuration file as sensitive and keep its permissions restricted. Desktop keyring integration is a future improvement.
 

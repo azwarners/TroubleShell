@@ -43,6 +43,16 @@ async def test_openai_compatible_client_posts_chat_request():
     assert '"model":"model"' in str(seen["json"])
 
 
+def test_openai_compatible_client_defaults_to_no_timeout():
+    client = OpenAICompatibleClient(base_url="http://test")
+    assert client.timeout is None
+
+
+def test_openai_compatible_client_accepts_configured_timeout():
+    client = OpenAICompatibleClient(base_url="http://test", timeout=180)
+    assert client.timeout == 180
+
+
 @pytest.mark.asyncio
 async def test_openai_compatible_client_without_api_key():
     seen_auth = []

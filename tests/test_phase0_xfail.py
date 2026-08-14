@@ -115,6 +115,9 @@ class FakeCaptureServer:
         if self.state != "connected":
             raise RuntimeError("terminal capture failed: " + self.state)
 
+    def synchronize(self):
+        self.ensure_healthy()
+
 
 # --- Test fixtures ---
 

@@ -38,3 +38,26 @@ class TerminalPane:
         self.widget.feed_child(insertable_text(text).encode("utf-8"))
         self.widget.feed_child(b"\n")
         self.widget.grab_focus()
+
+    def handle_clipboard_key(self, key: int, state: int, *,
+                             control_mask: int, shift_mask: int,
+                             other_modifier_mask: int,
+                             copy_key: int | tuple[int, ...],
+                             paste_key: int | tuple[int, ...]) -> bool:
+        """Handle only the terminal's explicit Ctrl+Shift clipboard shortcuts.
+
+        Modifier and key constants are supplied by the GTK boundary so this
+        adapter remains importable in non-display unit tests.
+        """
+        expected_modifiers = control_mask | shift_mask
+        if state & (control_mask | shift_mask | other_modifier_mask) != expected_modifiers:
+            return False
+        copy_keys = (copy_key,) if isinstance(copy_key, int) else copy_key
+        paste_keys = (paste_key,) if isinstance(paste_key, int) else paste_key
+        if key in copy_keys or key in paste_keys:
+            if key in copy_keys:
+                self.widget.copy_clipboard()
+            else:
+                self.widget.paste_clipboard()
+            return True
+        return False

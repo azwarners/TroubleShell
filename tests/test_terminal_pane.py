@@ -8,6 +8,7 @@ class FakeTerminal:
         self.inserted: list[bytes] = []
         self.focused = False
         self.spawned = None
+        self.clipboard_actions: list[str] = []
 
     def feed_child(self, text: bytes) -> None:
         self.inserted.append(text)
@@ -17,6 +18,12 @@ class FakeTerminal:
 
     def spawn_async(self, *args) -> None:
         self.spawned = args
+
+    def copy_clipboard(self) -> None:
+        self.clipboard_actions.append("copy")
+
+    def paste_clipboard(self) -> None:
+        self.clipboard_actions.append("paste")
 
 
 class FakeVte:
@@ -83,3 +90,41 @@ def test_terminal_pane_spawns_proxy_with_capture_socket_and_shell() -> None:
     assert argv[1:4] == ["-m", "triagetty.terminal.pty_proxy", "--capture-socket"]
     assert "/tmp/capture.sock" in argv
     assert argv[-2:] == ["--shell", "/bin/bash"]
+
+
+def test_terminal_pane_handles_ctrl_shift_copy_and_paste_only() -> None:
+    terminal = FakeTerminal()
+    pane = TerminalPane(terminal, shell="/bin/bash")
+    modifiers = {"control": 4, "shift": 1, "other": 8}
+
+    assert pane.handle_clipboard_key(
+        ord("c"), modifiers["control"] | modifiers["shift"],
+        control_mask=modifiers["control"], shift_mask=modifiers["shift"],
+        other_modifier_mask=modifiers["other"], copy_key=ord("c"), paste_key=ord("v")) is True
+    assert pane.handle_clipboard_key(
+        ord("v"), modifiers["control"] | modifiers["shift"],
+        control_mask=modifiers["control"], shift_mask=modifiers["shift"],
+        other_modifier_mask=modifiers["other"], copy_key=ord("c"), paste_key=ord("v")) is True
+    assert pane.handle_clipboard_key(
+        ord("C"), modifiers["control"] | modifiers["shift"],
+        control_mask=modifiers["control"], shift_mask=modifiers["shift"],
+        other_modifier_mask=modifiers["other"], copy_key=(ord("c"), ord("C")),
+        paste_key=(ord("v"), ord("V"))) is True
+    assert pane.handle_clipboard_key(
+        ord("V"), modifiers["control"] | modifiers["shift"],
+        control_mask=modifiers["control"], shift_mask=modifiers["shift"],
+        other_modifier_mask=modifiers["other"], copy_key=(ord("c"), ord("C")),
+        paste_key=(ord("v"), ord("V"))) is True
+    assert terminal.clipboard_actions == ["copy", "paste", "copy", "paste"]
+
+
+def test_terminal_pane_does_not_consume_unrelated_keys_or_modifiers() -> None:
+    terminal = FakeTerminal()
+    pane = TerminalPane(terminal, shell="/bin/bash")
+    kwargs = dict(control_mask=4, shift_mask=1, other_modifier_mask=8,
+                  copy_key=ord("c"), paste_key=ord("v"))
+
+    assert pane.handle_clipboard_key(ord("c"), 4, **kwargs) is False
+    assert pane.handle_clipboard_key(ord("c"), 4 | 1 | 8, **kwargs) is False
+    assert pane.handle_clipboard_key(ord("x"), 4 | 1, **kwargs) is False
+    assert terminal.clipboard_actions == []

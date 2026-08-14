@@ -11,7 +11,7 @@ class OpenAICompatibleClient:
         *,
         base_url: str,
         api_key: str = "",
-        timeout: float = 60.0,
+        timeout: float | None = None,
         verify_tls: bool = True,
         transport: httpx.AsyncBaseTransport | None = None
     ) -> None:
@@ -45,12 +45,12 @@ class OpenAICompatibleClient:
             ) from exc
         except httpx.ConnectTimeout as exc:
             raise TimeoutError(
-                f"Connection to {self.base_url} timed out after {self.timeout}s. "
+                f"Connection to {self.base_url} timed out after {self._timeout_description()}. "
                 f"Is the LLM server responding?"
             ) from exc
         except httpx.ReadTimeout as exc:
             raise TimeoutError(
-                f"LLM server at {self.base_url} did not respond within {self.timeout}s. "
+                f"LLM server at {self.base_url} did not respond within {self._timeout_description()}. "
                 f"The request may be too large or the server may be overloaded."
             ) from exc
         except httpx.NetworkError as exc:
@@ -63,6 +63,9 @@ class OpenAICompatibleClient:
             raise RuntimeError(
                 f"Unexpected error calling {self.base_url}: {type(exc).__name__}: {exc}"
             ) from exc
+
+    def _timeout_description(self) -> str:
+        return f"{self.timeout}s" if self.timeout is not None else "the configured timeout"
 
     def _parse_response(self, response: httpx.Response) -> ChatResponse:
         try:
