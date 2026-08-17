@@ -18,7 +18,11 @@ from .terminal.pane import TerminalPane
 from .terminal.output_capturer import TerminalOutputCapturer
 from .terminal.capture_server import CaptureServer
 from .terminal.transcript_store import TranscriptStore
-from .terminal.transcript import estimate_request_tokens, request_compaction_limit
+from .terminal.transcript import (
+    estimate_request_tokens,
+    estimate_tokens,
+    request_compaction_limit,
+)
 import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio
@@ -61,6 +65,10 @@ class TriageWindow:
         self.history: list[ChatMessage] = []
         self.request_id = 0
         self.cancel_event: threading.Event | None = None
+        # The provider reports exact prompt tokens only after a successful
+        # completion.  Until then, use the ordinary rough estimate for the UI;
+        # admission control below always uses its separate conservative value.
+        self._provider_token_ratio = 1.0
         # Phase 1: Context session state machine
         self.transcript_store = TranscriptStore()
         self.context_session = ContextSession(transcript=self.transcript_store)
@@ -270,9 +278,8 @@ class TriageWindow:
                                 system_prompt=self.config.system_prompt,
                                 history=tuple(self.context_session.history))
         safe_limit = request_compaction_limit(self.config.max_context_tokens)
-        total_estimated = estimate_request_tokens(
-            tuple(message.content for message in request.messages)
-        )
+        rough_estimated = sum(estimate_tokens(message.content) for message in request.messages)
+        total_estimated = estimate_request_tokens(tuple(message.content for message in request.messages))
         if total_estimated > safe_limit:
             self.context_session.compact(self.config.max_context_tokens)
             payload_transcript = self.context_session.build_request_payload()
@@ -280,9 +287,8 @@ class TriageWindow:
                                     max_tokens=self.config.max_context_tokens,
                                     system_prompt=self.config.system_prompt,
                                     history=tuple(self.context_session.history))
-            total_estimated = estimate_request_tokens(
-                tuple(message.content for message in request.messages)
-            )
+            rough_estimated = sum(estimate_tokens(message.content) for message in request.messages)
+            total_estimated = estimate_request_tokens(tuple(message.content for message in request.messages))
 
             while total_estimated > safe_limit and self.context_session.pending_slice is not None:
                 previous_payload = payload_transcript
@@ -294,9 +300,8 @@ class TriageWindow:
                                         max_tokens=self.config.max_context_tokens,
                                         system_prompt=self.config.system_prompt,
                                         history=tuple(self.context_session.history))
-                total_estimated = estimate_request_tokens(
-                    tuple(message.content for message in request.messages)
-                )
+                rough_estimated = sum(estimate_tokens(message.content) for message in request.messages)
+                total_estimated = estimate_request_tokens(tuple(message.content for message in request.messages))
 
             if total_estimated > safe_limit:
                 self.context_session.rollback_on_failure()
@@ -310,7 +315,11 @@ class TriageWindow:
 
         # Store the user message we are sending.
         self.context_session.snapshot_for_send(request.messages[-1])
-        self._show_sent_context(request, total_estimated)
+        display_estimated = math.ceil(
+            rough_estimated * getattr(self, "_provider_token_ratio", 1.0)
+        )
+        self._pending_request_rough_tokens = rough_estimated
+        self._show_sent_context(request, display_estimated)
 
         client = OpenAICompatibleClient(base_url=self.config.endpoint_url, api_key=self.config.api_key,
                                         timeout=getattr(self.config, "request_timeout", None),
@@ -332,8 +341,13 @@ class TriageWindow:
         )
 
     def _show_sent_context(self, request: ChatRequest, estimated_tokens: int) -> None:
-        """Display the exact outbound request body and conservative preflight use."""
-        self._show_context_usage(estimated_tokens, source="conservative estimate")
+        """Display the exact outbound request body and its best UI estimate."""
+        source = (
+            "calibrated estimate"
+            if getattr(self, "_provider_token_ratio", 1.0) > 1.0
+            else "rough estimate"
+        )
+        self._show_context_usage(estimated_tokens, source=source)
         self.context_tokens_label.set_text(
             f"Max context tokens: {self.config.max_context_tokens:,}"
         )
@@ -366,6 +380,7 @@ class TriageWindow:
         self.cancel_event = None
         # Phase 1: Rollback the session state on cancellation
         self.context_session.rollback_on_failure()
+        self._pending_request_rough_tokens = None
         self.status_label.set_text("Cancelled")
         self.question.set_sensitive(True)
         self.send_button.set_sensitive(True)
@@ -379,6 +394,7 @@ class TriageWindow:
             self._append_text(f"Request failed: {error}\n\n")
             # Phase 1: Rollback the session state on failure
             self.context_session.rollback_on_failure()
+            self._pending_request_rough_tokens = None
             # Provide helpful status based on error type
             if "connect" in error.lower() or "connection" in error.lower():
                 self.status_label.set_text("Request failed: Cannot connect to LLM server")
@@ -397,7 +413,17 @@ class TriageWindow:
             # Commit using the stored question from snapshot
             self.context_session.commit_on_success(response.content)
             if isinstance(response.prompt_tokens, int):
+                rough_tokens = getattr(self, "_pending_request_rough_tokens", None)
+                if isinstance(rough_tokens, int) and rough_tokens > 0:
+                    # Never calibrate downward: a provider count below our
+                    # rough estimate is useful information, but understating
+                    # a later request would make the panel misleading.
+                    self._provider_token_ratio = max(
+                        getattr(self, "_provider_token_ratio", 1.0),
+                        response.prompt_tokens / rough_tokens,
+                    )
                 self._show_context_usage(response.prompt_tokens, source="reported")
+            self._pending_request_rough_tokens = None
             self._append_response(response.content)
             self.status_label.set_text("Ready")
         self.question_buffer.set_text("")

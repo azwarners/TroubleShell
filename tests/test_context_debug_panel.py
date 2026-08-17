@@ -30,7 +30,7 @@ def test_context_debug_panel_shows_actual_outbound_payload_and_usage() -> None:
     window._show_sent_context(request, estimated_tokens=960)
 
     assert window.context_used_label.text == (
-        "Context used: 1% (960 / 96,000 conservative estimate tokens)"
+        "Context used: 1% (960 / 96,000 rough estimate tokens)"
     )
     assert window.context_tokens_label.text == "Max context tokens: 96,000"
     assert window.context_payload_label.text == '''{
@@ -57,4 +57,20 @@ def test_context_debug_panel_replaces_estimate_with_server_count() -> None:
 
     assert window.context_used_label.text == (
         "Context used: 2% (1,337 / 96,000 reported tokens)"
+    )
+
+
+def test_context_debug_panel_uses_prior_provider_count_to_calibrate_next_send() -> None:
+    window = object.__new__(TriageWindow)
+    window.config = _Config()
+    window.context_used_label = _Label()
+    window.context_tokens_label = _Label()
+    window.context_payload_label = _Label()
+    window._provider_token_ratio = 1.5
+    request = ChatRequest("test-model", (ChatMessage("user", "question"),))
+
+    window._show_sent_context(request, estimated_tokens=1_440)
+
+    assert window.context_used_label.text == (
+        "Context used: 2% (1,440 / 96,000 calibrated estimate tokens)"
     )
