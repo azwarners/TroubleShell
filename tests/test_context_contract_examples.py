@@ -18,7 +18,7 @@ GTK/VTE, focusing on the state machine contract:
 from dataclasses import dataclass, field
 from typing import Literal
 
-from triagetty.chat.models import ChatMessage
+from troubleshell.chat.models import ChatMessage
 
 
 # --- Minimal test fixtures that mimic the blueprint's event model ---
@@ -279,7 +279,7 @@ def test_no_output_disappears_due_to_vte_scrollback() -> None:
 def test_normal_turns_never_trim_terminal_events() -> None:
     """Normal turns never trim terminal events.
     
-    Blueprint contract: "TriageTTY does not trim a terminal message just because
+    Blueprint contract: "TroubleShell does not trim a terminal message just because
     it is large" and "normal turns never trim terminal events."
     
     Trimming only happens during compaction when approaching the provider limit.
@@ -304,7 +304,7 @@ def test_compaction_retains_newest_third() -> None:
     """Compaction retains the newest third and emits one explicit baseline.
     
     Blueprint contract: "When the complete request approaches the provider limit,
-    TriageTTY performs one explicit compaction: drop the oldest two thirds of
+    TroubleShell performs one explicit compaction: drop the oldest two thirds of
     terminal transcript events and retain the newest third."
     """
     # This test documents the compaction contract. The current implementation

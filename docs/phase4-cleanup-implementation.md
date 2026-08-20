@@ -8,16 +8,16 @@ acknowledgement, compaction, or provider integration.
 
 ## Repository map
 
-Repository root: `/home/nick/ServerData/repos/triagetty`.
+Repository root: `/home/nick/ServerData/repos/TroubleShell`.
 
 The sole application package is
-`/home/nick/ServerData/repos/triagetty/src/triagetty/`. Tests are only under
-`/home/nick/ServerData/repos/triagetty/tests/`; docs are only under
-`/home/nick/ServerData/repos/triagetty/docs/`. Never create top-level
-`terminal/`, top-level `triagetty/`, or `src/terminal/`.
+`/home/nick/ServerData/repos/TroubleShell/src/troubleshell/`. Tests are only under
+`/home/nick/ServerData/repos/TroubleShell/tests/`; docs are only under
+`/home/nick/ServerData/repos/TroubleShell/docs/`. Never create top-level
+`terminal/`, top-level `troubleshell/`, or `src/terminal/`.
 
 Before every task, run `pwd`, `test -f pyproject.toml`, and
-`test -d src/triagetty/terminal`. Work only from the repository root.
+`test -d src/troubleshell/terminal`. Work only from the repository root.
 
 ## Final product contract
 
@@ -41,7 +41,7 @@ Before every task, run `pwd`, `test -f pyproject.toml`, and
 ## Task 1: inventory stale references
 
 **Only allowed file:**
-`/home/nick/ServerData/repos/triagetty/docs/phase4-cleanup-inventory.md` (new).
+`/home/nick/ServerData/repos/TroubleShell/docs/phase4-cleanup-inventory.md` (new).
 
 Run searches for `bounded snapshot`, `recent terminal`, `context.line`,
 `context.character`, `line slider`, `Include recent`, `recent_transcript`,
@@ -55,8 +55,8 @@ not change production code or user-facing docs in this task.
 
 **Only allowed files:**
 
-- `/home/nick/ServerData/repos/triagetty/src/triagetty/window.py`
-- `/home/nick/ServerData/repos/triagetty/tests/test_phase0_xfail.py`
+- `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/window.py`
+- `/home/nick/ServerData/repos/TroubleShell/tests/test_phase0_xfail.py`
 
 Remove the hidden `include_context` checkbutton and every reference to it. Do
 not alter capture health, send, cancellation, atomic snapshots, compaction, or
@@ -68,8 +68,8 @@ proxy lifecycle. Add one narrow test proving context always comes from
 
 **Only allowed files:**
 
-- `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pane.py`
-- `/home/nick/ServerData/repos/triagetty/tests/test_terminal_pane.py`
+- `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/pane.py`
+- `/home/nick/ServerData/repos/TroubleShell/tests/test_terminal_pane.py`
 
 Use Task 1's inventory to determine whether `recent_transcript()` and
 `_get_full_transcript()` have a supported display-only caller. If none remains,
@@ -82,8 +82,8 @@ context.” No model-context path may call VTE text reading.
 
 **Only allowed files:**
 
-- `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/transcript.py`
-- `/home/nick/ServerData/repos/triagetty/tests/test_transcript.py`
+- `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/transcript.py`
+- `/home/nick/ServerData/repos/TroubleShell/tests/test_transcript.py`
 
 If Task 1 proves `bound_transcript()` is unused, remove it and only its direct
 tests. Retain `estimate_tokens()` for whole-request compaction. Decide
@@ -94,8 +94,8 @@ truncation function.
 
 **Only allowed files:**
 
-- `/home/nick/ServerData/repos/triagetty/src/triagetty/config.py`
-- `/home/nick/ServerData/repos/triagetty/tests/test_config.py`
+- `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/config.py`
+- `/home/nick/ServerData/repos/TroubleShell/tests/test_config.py`
 
 Replace stale wording such as “bounded snapshot” with accurate wording:
 captured terminal output is ordered context and is compacted only near the
@@ -108,9 +108,9 @@ does not claim a bounded/recent snapshot.
 
 **Only allowed files:**
 
-- `/home/nick/ServerData/repos/triagetty/README.md`
-- `/home/nick/ServerData/repos/triagetty/docs/architecture.md`
-- `/home/nick/ServerData/repos/triagetty/docs/terminal-context-blueprint.md`
+- `/home/nick/ServerData/repos/TroubleShell/README.md`
+- `/home/nick/ServerData/repos/TroubleShell/docs/architecture.md`
+- `/home/nick/ServerData/repos/TroubleShell/docs/terminal-context-blueprint.md`
 
 README must say context is captured from shell output rather than VTE
 scrollback; normal turns are untrimmed; compaction is only near the provider
@@ -124,7 +124,7 @@ threat-model, licensing, or version information.
 ## Task 7: add stale-claim regression coverage
 
 **Only allowed file:**
-`/home/nick/ServerData/repos/triagetty/tests/test_context_documentation.py`
+`/home/nick/ServerData/repos/TroubleShell/tests/test_context_documentation.py`
 (new).
 
 Read `README.md`, `docs/architecture.md`, and `config.DEFAULT_SYSTEM_PROMPT`.

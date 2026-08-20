@@ -10,10 +10,10 @@ These tests simulate real conversation sessions to verify:
 import httpx
 import pytest
 
-from triagetty.chat.models import ChatMessage
-from triagetty.llm.openai_compatible import OpenAICompatibleClient
-from triagetty.llm.prompt import build_request
-from triagetty.terminal.transcript import estimate_tokens
+from troubleshell.chat.models import ChatMessage
+from troubleshell.llm.openai_compatible import OpenAICompatibleClient
+from troubleshell.llm.prompt import build_request
+from troubleshell.terminal.transcript import estimate_tokens
 
 
 # --- Context estimation tests ---

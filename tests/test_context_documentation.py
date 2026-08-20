@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from triagetty.config import DEFAULT_SYSTEM_PROMPT
+from troubleshell.config import DEFAULT_SYSTEM_PROMPT
 
 
 ROOT = Path(__file__).parents[1]

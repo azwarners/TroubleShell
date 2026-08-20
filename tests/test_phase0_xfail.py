@@ -1,6 +1,6 @@
 """Phase 0: Expected-failure tests against real production seams.
 
-These tests assert the desired blueprint behavior against actual TriageTTY
+These tests assert the desired blueprint behavior against actual TroubleShell
 production code. They are marked @pytest.mark.xfail(strict=True) because the
 current implementation does not yet satisfy the contract.
 
@@ -72,7 +72,7 @@ class FakeTerminalPane:
 
 
 class FakeConfig:
-    """Minimal config for TriageWindow."""
+    """Minimal config for TroubleWindow."""
     
     def __init__(self):
         self.model = "test-model"
@@ -90,7 +90,7 @@ class FakeThread:
 
     The tests drive ``_finish_request()`` themselves. Running the target here
     would invoke the real provider client, and returning a real thread would
-    invoke it again when ``TriageWindow`` calls ``start()``.
+    invoke it again when ``TroubleWindow`` calls ``start()``.
     """
 
     instances = []
@@ -127,7 +127,7 @@ import pytest
 
 @pytest.fixture
 def bare_submission_state():
-    """Create a minimal TriageWindow with patched threading and build_request.
+    """Create a minimal TroubleWindow with patched threading and build_request.
     
     Uses object.__new__ to bypass GTK __init__, then sets up the minimal
     state needed to track _send_question() and _finish_request() transitions.
@@ -136,10 +136,10 @@ def bare_submission_state():
     - threading.Thread: records the target without executing it
     - build_request: captures outbound payloads for inspection
     """
-    from triagetty.window import TriageWindow
+    from troubleshell.window import TroubleWindow
     
     # Create instance without running full __init__
-    window = object.__new__(TriageWindow)
+    window = object.__new__(TroubleWindow)
     
     # Set minimal state for submission seam testing
     window.history = []
@@ -148,14 +148,14 @@ def bare_submission_state():
     window.request_id = 0
     
     # Phase 1: Initialize context session state machine
-    from triagetty.llm.context_session import ContextSession
-    from triagetty.terminal.transcript_store import TranscriptStore
+    from troubleshell.llm.context_session import ContextSession
+    from troubleshell.terminal.transcript_store import TranscriptStore
     window.transcript_store = TranscriptStore()
     window.context_session = ContextSession(transcript=window.transcript_store)
     window.context_session.pending_user_message = None
     
     # Phase 2: Output capturer sink (no start/stop)
-    from triagetty.terminal.output_capturer import TerminalOutputCapturer
+    from troubleshell.terminal.output_capturer import TerminalOutputCapturer
     window.output_capturer = TerminalOutputCapturer(
         transcript_store=window.transcript_store
     )
@@ -192,7 +192,7 @@ def bare_submission_state():
     captured_requests = []
     
     def fake_build_request(*args, **kwargs):
-        from triagetty.chat.models import ChatMessage, ChatRequest
+        from troubleshell.chat.models import ChatMessage, ChatRequest
         captured_requests.append(kwargs)
         return ChatRequest(
             kwargs.get("model", "test-model"),
@@ -206,8 +206,8 @@ def test_send_refuses_capture_before_connection(bare_submission_state):
     window, fake_thread, fake_build_request, captured_requests = bare_submission_state
     window.capture_server.state = "starting"
     window.question_buffer.set_text("Q")
-    with patch("triagetty.window.threading.Thread", fake_thread):
-        with patch("triagetty.window.build_request", fake_build_request):
+    with patch("troubleshell.window.threading.Thread", fake_thread):
+        with patch("troubleshell.window.build_request", fake_build_request):
             window._send_question(None)
     assert not fake_thread.instances
     assert not captured_requests
@@ -218,8 +218,8 @@ def test_send_refuses_capture_after_disconnect(bare_submission_state):
     window, fake_thread, fake_build_request, captured_requests = bare_submission_state
     window.capture_server.state = "closed"
     window.question_buffer.set_text("Q")
-    with patch("triagetty.window.threading.Thread", fake_thread):
-        with patch("triagetty.window.build_request", fake_build_request):
+    with patch("troubleshell.window.threading.Thread", fake_thread):
+        with patch("troubleshell.window.build_request", fake_build_request):
             window._send_question(None)
     assert not fake_thread.instances
     assert not captured_requests
@@ -230,8 +230,8 @@ def test_context_is_always_taken_from_context_session(bare_submission_state):
     window, fake_thread, fake_build_request, captured_requests = bare_submission_state
     window.transcript_store.append("output", b"captured\n")
     window.question_buffer.set_text("Q")
-    with patch("triagetty.window.threading.Thread", fake_thread):
-        with patch("triagetty.window.build_request", fake_build_request):
+    with patch("troubleshell.window.threading.Thread", fake_thread):
+        with patch("troubleshell.window.build_request", fake_build_request):
             window._send_question(None)
     assert fake_thread.instances
     assert captured_requests[0]["transcript"] == "captured\n"
@@ -239,7 +239,7 @@ def test_context_is_always_taken_from_context_session(bare_submission_state):
 
 def test_oversized_single_event_is_compacted_before_submission(bare_submission_state):
     window, fake_thread, _fake_build_request, _captured_requests = bare_submission_state
-    from triagetty.llm.prompt import build_request as real_build_request
+    from troubleshell.llm.prompt import build_request as real_build_request
 
     window.config.max_context_tokens = 100000
     captured = []
@@ -251,22 +251,22 @@ def test_oversized_single_event_is_compacted_before_submission(bare_submission_s
 
     window.transcript_store.append("output", ("huge terminal line " * 20000).encode())
     window.question_buffer.set_text("What happened?")
-    with patch("triagetty.window.threading.Thread", fake_thread):
-        with patch("triagetty.window.build_request", capture_request):
+    with patch("troubleshell.window.threading.Thread", fake_thread):
+        with patch("troubleshell.window.build_request", capture_request):
             window._send_question(None)
 
     assert captured
     assert fake_thread.instances
     assert "older terminal context compacted" in captured[-1].messages[-1].content
-    from triagetty.terminal.transcript import estimate_request_tokens, request_compaction_limit
+    from troubleshell.terminal.transcript import estimate_request_tokens, request_compaction_limit
     assert estimate_request_tokens(
         tuple(message.content for message in captured[-1].messages)
     ) <= request_compaction_limit(100000)
 
 
 def test_first_compaction_of_one_event_retains_newest_third() -> None:
-    from triagetty.llm.context_session import ContextSession
-    from triagetty.terminal.transcript_store import TranscriptStore
+    from troubleshell.llm.context_session import ContextSession
+    from troubleshell.terminal.transcript_store import TranscriptStore
 
     text = "terminal-output-" * 300
     store = TranscriptStore()
@@ -282,8 +282,8 @@ def test_first_compaction_of_one_event_retains_newest_third() -> None:
 
 def test_compaction_refuses_when_retained_context_still_cannot_fit(bare_submission_state):
     window, fake_thread, _fake_build_request, _captured_requests = bare_submission_state
-    from triagetty.llm.prompt import build_request as real_build_request
-    from triagetty.terminal.transcript import estimate_request_tokens, request_compaction_limit
+    from troubleshell.llm.prompt import build_request as real_build_request
+    from troubleshell.terminal.transcript import estimate_request_tokens, request_compaction_limit
 
     window.config.max_context_tokens = 20
     captured = []
@@ -295,8 +295,8 @@ def test_compaction_refuses_when_retained_context_still_cannot_fit(bare_submissi
 
     window.transcript_store.append("output", ("huge terminal line " * 20000).encode())
     window.question_buffer.set_text("What happened?")
-    with patch("triagetty.window.threading.Thread", fake_thread):
-        with patch("triagetty.window.build_request", capture_request):
+    with patch("troubleshell.window.threading.Thread", fake_thread):
+        with patch("troubleshell.window.build_request", capture_request):
             window._send_question(None)
 
     if fake_thread.instances:
@@ -328,8 +328,8 @@ def test_retry_sends_same_delta_after_failure(bare_submission_state):
     window.transcript_store.append("output", initial_transcript.encode("utf-8"))
     
     # First send attempt
-    with patch('triagetty.window.threading.Thread', fake_thread):
-        with patch('triagetty.window.build_request', fake_build_request):
+    with patch('troubleshell.window.threading.Thread', fake_thread):
+        with patch('troubleshell.window.build_request', fake_build_request):
             window.question_buffer.set_text("Q1")
             window._send_question(None)
     
@@ -344,8 +344,8 @@ def test_retry_sends_same_delta_after_failure(bare_submission_state):
     window._finish_request(None, "Connection failed", window.request_id, request_event)
     
     # Second send (retry) with same terminal state
-    with patch('triagetty.window.threading.Thread', fake_thread):
-        with patch('triagetty.window.build_request', fake_build_request):
+    with patch('troubleshell.window.threading.Thread', fake_thread):
+        with patch('troubleshell.window.build_request', fake_build_request):
             window.cancel_event = None
             window.question_buffer.set_text("Q1 retry")
             window._send_question(None)
@@ -377,8 +377,8 @@ def test_history_only_contains_completed_pairs(bare_submission_state):
     window.transcript_store.append("output", b"output\n")
     
     # First request: success
-    with patch('triagetty.window.threading.Thread', fake_thread):
-        with patch('triagetty.window.build_request', fake_build_request):
+    with patch('troubleshell.window.threading.Thread', fake_thread):
+        with patch('troubleshell.window.build_request', fake_build_request):
             window.question_buffer.set_text("Q1")
             window._send_question(None)
             # Mock successful completion
@@ -393,8 +393,8 @@ def test_history_only_contains_completed_pairs(bare_submission_state):
     assert window.context_session.history[1].role == "assistant"
     
     # Second request: failure
-    with patch('triagetty.window.threading.Thread', fake_thread):
-        with patch('triagetty.window.build_request', fake_build_request):
+    with patch('troubleshell.window.threading.Thread', fake_thread):
+        with patch('troubleshell.window.build_request', fake_build_request):
             window.question_buffer.set_text("Q2")
             window._send_question(None)
             # Mock failure
@@ -420,8 +420,8 @@ def test_history_only_contains_completed_pairs(bare_submission_state):
 
 def test_two_successful_turns_send_each_terminal_range_once(bare_submission_state):
     """The real submission path keeps A in history and sends only new B."""
-    from triagetty.chat.models import ChatResponse
-    from triagetty.llm.prompt import build_request as real_build_request
+    from troubleshell.chat.models import ChatResponse
+    from troubleshell.llm.prompt import build_request as real_build_request
 
     window, fake_thread, _fake_build_request, _captured = bare_submission_state
     requests = []
@@ -431,8 +431,8 @@ def test_two_successful_turns_send_each_terminal_range_once(bare_submission_stat
         requests.append(request)
         return request
 
-    with patch("triagetty.window.threading.Thread", fake_thread), \
-         patch("triagetty.window.build_request", capture_request):
+    with patch("troubleshell.window.threading.Thread", fake_thread), \
+         patch("troubleshell.window.build_request", capture_request):
         # Populate transcript store directly (Phase 2)
         window.transcript_store.append("output", b"terminal output A\n")
         window.question_buffer.set_text("Q1")
@@ -459,9 +459,9 @@ def test_two_successful_turns_send_each_terminal_range_once(bare_submission_stat
 
 def test_compaction_drops_old_terminal_history_and_keeps_newest_third():
     """Compaction reduces the actual request material, not just a cursor."""
-    from triagetty.chat.models import ChatMessage
-    from triagetty.llm.context_session import ContextSession
-    from triagetty.terminal.transcript_store import TranscriptStore
+    from troubleshell.chat.models import ChatMessage
+    from troubleshell.llm.context_session import ContextSession
+    from troubleshell.terminal.transcript_store import TranscriptStore
 
     store = TranscriptStore()
     for number in range(6):
@@ -486,23 +486,23 @@ def test_compaction_drops_old_terminal_history_and_keeps_newest_third():
 
 
 def test_context_session_module_exists():
-    """ContextSession class should exist at triagetty.llm.context_session.
+    """ContextSession class should exist at troubleshell.llm.context_session.
     
     Blueprint contract: "ContextSession is the state machine that tracks
     acknowledged_sequence, transcript_start_sequence, and performs compaction."
     
-    Phase 1 implementation: ContextSession exists at triagetty.llm.context_session.
+    Phase 1 implementation: ContextSession exists at troubleshell.llm.context_session.
     """
     # Check if ContextSession is importable from the correct module path
     try:
-        from triagetty.llm.context_session import ContextSession
+        from troubleshell.llm.context_session import ContextSession
         has_context_session = True
     except ImportError:
         has_context_session = False
     
     # This assertion should PASS now that Phase 1 is complete
     assert has_context_session, \
-        "ContextSession class should be added at triagetty.llm.context_session in Phase 1"
+        "ContextSession class should be added at troubleshell.llm.context_session in Phase 1"
 
 
 def test_event_based_transcript_preserves_duplicates():
@@ -510,18 +510,18 @@ def test_event_based_transcript_preserves_duplicates():
     
     Blueprint contract: "Duplicate terminal text in distinct events remains distinct."
     
-    Phase 1 implementation: TerminalEvent exists at triagetty.terminal.transcript_store.
+    Phase 1 implementation: TerminalEvent exists at troubleshell.terminal.transcript_store.
     """
     # Check if TerminalEvent exists (Phase 1 addition)
     try:
-        from triagetty.terminal.transcript_store import TerminalEvent
+        from troubleshell.terminal.transcript_store import TerminalEvent
         has_event_model = True
     except ImportError:
         has_event_model = False
     
     # This assertion should PASS now that TerminalEvent exists
     assert has_event_model, \
-        "TerminalEvent class should be added at triagetty.terminal.transcript_store in Phase 1"
+        "TerminalEvent class should be added at troubleshell.terminal.transcript_store in Phase 1"
 
 
 def test_pty_proxy_captures_bytes():
@@ -535,7 +535,7 @@ def test_pty_proxy_captures_bytes():
     """
     # Check if PTYProxy exists (Phase 3 addition)
     try:
-        from triagetty.terminal import pty_proxy
+        from troubleshell.terminal import pty_proxy
         has_pty_proxy = True
     except ImportError:
         has_pty_proxy = False
@@ -552,7 +552,7 @@ def test_pty_proxy_captures_bytes():
 def test_normal_turns_do_not_trim_terminal_events(bare_submission_state):
     """Normal (non-compaction) turns should include all unacknowledged events.
     
-    Blueprint contract: "TriageTTY does not trim a terminal message just because
+    Blueprint contract: "TroubleShell does not trim a terminal message just because
     it is large." and "normal turns never trim terminal events."
     
     Phase 2: _send_question() calls request_slice() which atomically snapshots
@@ -565,8 +565,8 @@ def test_normal_turns_do_not_trim_terminal_events(bare_submission_state):
     window.transcript_store.append("output", turn1_transcript.encode("utf-8"))
 
     # First send: capture what gets passed to build_request
-    with patch('triagetty.window.threading.Thread', fake_thread):
-        with patch('triagetty.window.build_request', fake_build_request):
+    with patch('troubleshell.window.threading.Thread', fake_thread):
+        with patch('troubleshell.window.build_request', fake_build_request):
             window.question_buffer.set_text("Q1")
             window._send_question(None)
 
@@ -585,8 +585,8 @@ def test_normal_turns_do_not_trim_terminal_events(bare_submission_state):
     turn2_transcript = "\n".join(f"line {i}" for i in range(100, 150))
     window.transcript_store.append("output", turn2_transcript.encode("utf-8"))
 
-    with patch('triagetty.window.threading.Thread', fake_thread):
-        with patch('triagetty.window.build_request', fake_build_request):
+    with patch('troubleshell.window.threading.Thread', fake_thread):
+        with patch('troubleshell.window.build_request', fake_build_request):
             window.cancel_event = None
             window.question_buffer.set_text("Q2")
             window._send_question(None)

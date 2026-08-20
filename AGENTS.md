@@ -1,4 +1,4 @@
-# TriageTTY contributor guidance
+# TroubleShell contributor guidance
 
 - Keep this a standalone Linux desktop application; do not add Apmatia imports or agent/tool abstractions.
 - Commands suggested by the model may be copied or inserted only. They must never be executed automatically.

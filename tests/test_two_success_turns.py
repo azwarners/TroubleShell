@@ -1,16 +1,16 @@
 """Phase 1 acceptance test: two successful turns preserve terminal context.
 
 This is a pure ContextSession unit test.  The production-seam equivalent lives
-in test_phase0_xfail.py and drives TriageWindow's send/finish workflow.
+in test_phase0_xfail.py and drives TroubleWindow's send/finish workflow.
 """
 
 from unittest.mock import MagicMock, patch
 
-from triagetty.chat.models import ChatMessage
-from triagetty.config import Config
-from triagetty.llm.context_session import ContextSession
-from triagetty.llm.prompt import build_request
-from triagetty.terminal.transcript_store import TranscriptStore
+from troubleshell.chat.models import ChatMessage
+from troubleshell.config import Config
+from troubleshell.llm.context_session import ContextSession
+from troubleshell.llm.prompt import build_request
+from troubleshell.terminal.transcript_store import TranscriptStore
 
 
 class FakeGTK:
@@ -65,7 +65,7 @@ class FakeTerminalPane:
 
 
 class FakeConfig:
-    """Minimal config for TriageWindow."""
+    """Minimal config for TroubleWindow."""
     
     def __init__(self):
         self.model = "test-model"

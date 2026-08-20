@@ -7,9 +7,9 @@ import threading
 import termios
 import time
 
-from triagetty.terminal.capture_server import CaptureServer
-from triagetty.terminal.output_capturer import TerminalOutputCapturer
-from triagetty.terminal.transcript_store import TranscriptStore
+from troubleshell.terminal.capture_server import CaptureServer
+from troubleshell.terminal.output_capturer import TerminalOutputCapturer
+from troubleshell.terminal.transcript_store import TranscriptStore
 
 
 def wait_for(predicate):
@@ -39,7 +39,7 @@ def test_proxy_owns_outer_pty_relay_and_restores_termios(tmp_path):
     displayed = bytearray()
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+            [sys.executable, "-m", "troubleshell.terminal.pty_proxy", "--capture-socket", path,
              "--shell", str(wrapper)],
             stdin=outer_slave, stdout=outer_slave, stderr=subprocess.PIPE,
         )
@@ -112,7 +112,7 @@ def test_proxy_forwards_ctrl_c_without_terminating(tmp_path):
     displayed = bytearray()
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+            [sys.executable, "-m", "troubleshell.terminal.pty_proxy", "--capture-socket", path,
              "--shell", str(wrapper)],
             stdin=outer_slave, stdout=outer_slave, stderr=subprocess.PIPE,
         )
@@ -158,7 +158,7 @@ def test_proxy_captures_and_forwards_exact_shell_bytes(tmp_path):
     proc = None
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+            [sys.executable, "-m", "troubleshell.terminal.pty_proxy", "--capture-socket", path,
              "--shell", str(wrapper)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -177,7 +177,7 @@ def test_proxy_captures_and_forwards_exact_shell_bytes(tmp_path):
 def test_proxy_refuses_uncaptured_shell(tmp_path):
     missing = tmp_path / "missing.sock"
     proc = subprocess.run(
-        [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", str(missing),
+        [sys.executable, "-m", "troubleshell.terminal.pty_proxy", "--capture-socket", str(missing),
          "--shell", "/bin/sh"], capture_output=True, check=False,
     )
     assert proc.returncode != 0
@@ -197,7 +197,7 @@ def test_proxy_preserves_ten_thousand_lines(tmp_path):
     path = server.start()
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+            [sys.executable, "-m", "troubleshell.terminal.pty_proxy", "--capture-socket", path,
              "--shell", str(wrapper)], input=b"", capture_output=True, timeout=10,
         )
         assert proc.returncode == 0, proc.stderr.decode(errors="replace")
@@ -227,14 +227,14 @@ def test_live_proxy_snapshot_boundary(tmp_path):
     server = CaptureServer(TerminalOutputCapturer(store), temp_dir_parent=tmp_path)
     path = server.start()
     proc = subprocess.Popen(
-        [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+        [sys.executable, "-m", "troubleshell.terminal.pty_proxy", "--capture-socket", path,
          "--shell", str(wrapper)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
     try:
         wait_for(lambda: "A" in store.get_slice(0, store.next_sequence).text)
-        from triagetty.llm.context_session import ContextSession
-        from triagetty.chat.models import ChatMessage
+        from troubleshell.llm.context_session import ContextSession
+        from troubleshell.chat.models import ChatMessage
         session = ContextSession(store)
         first = session.request_slice()
         assert first.text == "A\r\n"
@@ -270,7 +270,7 @@ def test_interrupted_long_running_command_is_captured_before_each_snapshot(tmp_p
     wrapper = tmp_path / "interactive-shell"
     wrapper.write_text(
         "#!/bin/sh\n"
-        "PS1='TRIAGE_PROMPT> '; export PS1\n"
+        "PS1='TROUBLE_PROMPT> '; export PS1\n"
         "exec /bin/sh -i\n"
     )
     wrapper.chmod(0o700)
@@ -284,13 +284,13 @@ def test_interrupted_long_running_command_is_captured_before_each_snapshot(tmp_p
     proc = None
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+            [sys.executable, "-m", "troubleshell.terminal.pty_proxy", "--capture-socket", path,
              "--shell", str(wrapper)],
             stdin=outer_slave, stdout=outer_slave, stderr=subprocess.PIPE,
         )
         os.close(outer_slave)
         outer_slave = -1
-        wait_for(lambda: b"TRIAGE_PROMPT> " in b"".join(event.raw for event in store.events))
+        wait_for(lambda: b"TROUBLE_PROMPT> " in b"".join(event.raw for event in store.events))
 
         os.write(
             outer_master,
@@ -299,8 +299,8 @@ def test_interrupted_long_running_command_is_captured_before_each_snapshot(tmp_p
         )
         wait_for(lambda: b"device-005\r\n" in b"".join(event.raw for event in store.events))
 
-        from triagetty.chat.models import ChatMessage
-        from triagetty.llm.context_session import ContextSession
+        from troubleshell.chat.models import ChatMessage
+        from troubleshell.llm.context_session import ContextSession
 
         session = ContextSession(store)
         server.synchronize()
@@ -313,7 +313,7 @@ def test_interrupted_long_running_command_is_captured_before_each_snapshot(tmp_p
         wait_for(lambda: b"device-012\r\n" in b"".join(event.raw for event in store.events))
         os.write(outer_master, b"\x03")
         wait_for(
-            lambda: b"".join(event.raw for event in store.events).count(b"TRIAGE_PROMPT> ") >= 2
+            lambda: b"".join(event.raw for event in store.events).count(b"TROUBLE_PROMPT> ") >= 2
         )
 
         server.synchronize()
@@ -349,7 +349,7 @@ def test_proxy_exits_when_capture_connection_disconnects(tmp_path):
     server = CaptureServer(TerminalOutputCapturer(store), temp_dir_parent=tmp_path)
     path = server.start()
     proc = subprocess.Popen(
-        [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+        [sys.executable, "-m", "troubleshell.terminal.pty_proxy", "--capture-socket", path,
          "--shell", str(wrapper)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )

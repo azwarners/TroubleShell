@@ -12,15 +12,15 @@ documentation that describes per-message line, character, or token trimming.
 
 ## User-visible contract
 
-1. Every terminal event captured after TriageTTY starts belongs to an ordered,
+1. Every terminal event captured after TroubleShell starts belongs to an ordered,
    append-only session transcript.
 2. A terminal event is included in model context once, and never deliberately
    duplicated in a later event payload.
 3. A failed, cancelled, or rejected model request does not consume context.
    Its unacknowledged terminal events are resent on the next successful
    submission attempt.
-4. TriageTTY does not trim a terminal message just because it is large.
-5. When the complete request approaches the provider limit, TriageTTY performs
+4. TroubleShell does not trim a terminal message just because it is large.
+5. When the complete request approaches the provider limit, TroubleShell performs
    one explicit compaction: drop the oldest two thirds of terminal transcript
    events and retain the newest third. It then continues normal append-only
    operation from that retained baseline.
@@ -220,20 +220,20 @@ capacity-based removal.
 
 ## Proposed module boundaries
 
-Repository root: `/home/nick/ServerData/repos/triagetty`. All application
-source lives under its existing `src/triagetty/` package directory; do not
-create a top-level `terminal/`, a top-level `triagetty/`, or `src/terminal/`.
+Repository root: `/home/nick/ServerData/repos/TroubleShell`. All application
+source lives under its existing `src/troubleshell/` package directory; do not
+create a top-level `terminal/`, a top-level `troubleshell/`, or `src/terminal/`.
 
 ```text
-/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pty_proxy.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/pty_proxy.py
     GTK-independent PTY forwarding/capture
-/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/transcript_store.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/transcript_store.py
     append-only events and deterministic slices
-/home/nick/ServerData/repos/triagetty/src/triagetty/llm/context_session.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/llm/context_session.py
     acknowledgement, request state, compaction
-/home/nick/ServerData/repos/triagetty/src/triagetty/llm/prompt.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/llm/prompt.py
     pure serialization of already-selected context
-/home/nick/ServerData/repos/triagetty/src/triagetty/window.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/window.py
     GTK wiring only
 ```
 
@@ -260,7 +260,7 @@ become ordinary passing tests.
 
 Use two deliberately different kinds of tests:
 
-- **Production-seam tests** exercise the actual `TriageWindow` submission and
+- **Production-seam tests** exercise the actual `TroubleWindow` submission and
   completion workflow with fake GTK controls, a fake terminal source, and a
   patched request builder. They capture the payload passed to `build_request()`
   rather than reimplementing production logic in a mock window.
@@ -294,8 +294,8 @@ Future-stage module-existence checks are allowed as clearly labeled deferred
 architecture markers, but are not behavioral contract tests. Replace each
 marker immediately with behavior tests when its module is introduced. Use the
 module paths in [Proposed module boundaries](#proposed-module-boundaries):
-`triagetty.terminal.transcript_store`, `triagetty.llm.context_session`, and
-`triagetty.terminal.pty_proxy`.
+`troubleshell.terminal.transcript_store`, `troubleshell.llm.context_session`, and
+`troubleshell.terminal.pty_proxy`.
 
 ### Phase 1: introduce pure state objects
 
@@ -309,7 +309,7 @@ acknowledgement, rollback, compaction, and complete history pairs.
 ### Phase 2: replace snapshot delta handling
 
 Remove `_last_transcript`, `_compute_transcript_delta`, and the direct private
-call to `_get_full_transcript()` from `TriageWindow`. Wire sends, success,
+call to `_get_full_transcript()` from `TroubleWindow`. Wire sends, success,
 failure, and cancellation through `ContextSession`.
 
 **Scope change**: The polling-based VTE adapter is removed entirely. A pure

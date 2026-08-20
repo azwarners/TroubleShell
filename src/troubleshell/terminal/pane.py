@@ -23,7 +23,7 @@ class TerminalPane:
 
     def spawn(self, vte: object) -> None:
         """Start the configured shell through the PTY capture proxy."""
-        argv = [sys.executable, "-m", "triagetty.terminal.pty_proxy",
+        argv = [sys.executable, "-m", "troubleshell.terminal.pty_proxy",
                 "--capture-socket", self.capture_socket_path, "--shell", self.shell]
         self.widget.spawn_async(vte.PtyFlags.DEFAULT, None, argv, None, 0,
                                 None, None, -1, None, None)

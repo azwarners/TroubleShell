@@ -8,9 +8,9 @@ Validates:
 - Re-snapshot after compaction uses updated acknowledged_sequence
 """
 
-from triagetty.chat.models import ChatMessage
-from triagetty.llm.context_session import ContextSession
-from triagetty.terminal.transcript_store import TranscriptStore
+from troubleshell.chat.models import ChatMessage
+from troubleshell.llm.context_session import ContextSession
+from troubleshell.terminal.transcript_store import TranscriptStore
 
 
 class TestRequestSliceAtomic:

@@ -7,9 +7,9 @@ Verifies:
 4. UTF-8 split across events decodes correctly
 """
 
-from triagetty.chat.models import ChatMessage
-from triagetty.llm.context_session import ContextSession
-from triagetty.terminal.transcript_store import TranscriptStore
+from troubleshell.chat.models import ChatMessage
+from troubleshell.llm.context_session import ContextSession
+from troubleshell.terminal.transcript_store import TranscriptStore
 
 
 def test_duplicate_bytes_in_separate_events_preserved():

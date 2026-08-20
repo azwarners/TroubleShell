@@ -15,8 +15,8 @@ Proves:
 
 import pytest
 
-from triagetty.terminal.output_capturer import TerminalOutputCapturer
-from triagetty.terminal.transcript_store import TranscriptStore
+from troubleshell.terminal.output_capturer import TerminalOutputCapturer
+from troubleshell.terminal.transcript_store import TranscriptStore
 
 
 def test_exact_raw_preservation():

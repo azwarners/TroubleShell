@@ -1,6 +1,6 @@
-# TriageTTY architecture
+# TroubleShell architecture
 
-TriageTTY is a small, standalone GTK 4 application. Its architecture is intentionally direct: a VTE terminal, a chat pane, a deterministic prompt builder, one provider client, and pure parsing/rendering helpers. There are no agent, tool, plugin, workflow, or orchestration layers.
+TroubleShell is a small, standalone GTK 4 application. Its architecture is intentionally direct: a VTE terminal, a chat pane, a deterministic prompt builder, one provider client, and pure parsing/rendering helpers. There are no agent, tool, plugin, workflow, or orchestration layers.
 
 ## Runtime data flow
 
@@ -57,7 +57,7 @@ explicit whole-request compaction and retains the newest terminal third.
 - a `<terminal_context>` envelope containing the selected captured transcript; and
 - a `<user_question>` envelope containing the new question.
 
-The captured terminal transcript is explicitly labeled as untrusted observational data. It is not continuously sent to the model and is not interpreted by TriageTTY as shell syntax.
+The captured terminal transcript is explicitly labeled as untrusted observational data. It is not continuously sent to the model and is not interpreted by TroubleShell as shell syntax.
 
 ## Provider boundary
 
@@ -79,7 +79,7 @@ The HTTP client is isolated from GTK and can be replaced or mocked. Tests use `h
 
 `config.py` persists the local TOML configuration under the XDG config directory. The populated system prompt is stored there so users can edit it without changing source code. New installations create the configuration on first launch, while legacy `system_prompt_override` files remain readable.
 
-GTK and VTE are system dependencies accessed through PyGObject. TriageTTY does not vendor, fork, or modify VTE. The desktop entry and icon installer are under `packaging/` and install to the user's local application and icon directories.
+GTK and VTE are system dependencies accessed through PyGObject. TroubleShell does not vendor, fork, or modify VTE. The desktop entry and icon installer are under `packaging/` and install to the user's local application and icon directories.
 
 ## Security posture
 

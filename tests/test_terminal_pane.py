@@ -1,6 +1,6 @@
 """Tests for proxy spawning and safe terminal command insertion."""
 
-from triagetty.terminal.pane import TerminalPane
+from troubleshell.terminal.pane import TerminalPane
 
 
 class FakeTerminal:
@@ -87,7 +87,7 @@ def test_terminal_pane_spawns_proxy_with_capture_socket_and_shell() -> None:
     pane = TerminalPane(terminal, shell="/bin/bash", capture_socket_path="/tmp/capture.sock")
     pane.spawn(FakeVte)
     argv = terminal.spawned[2]
-    assert argv[1:4] == ["-m", "triagetty.terminal.pty_proxy", "--capture-socket"]
+    assert argv[1:4] == ["-m", "troubleshell.terminal.pty_proxy", "--capture-socket"]
     assert "/tmp/capture.sock" in argv
     assert argv[-2:] == ["--shell", "/bin/bash"]
 

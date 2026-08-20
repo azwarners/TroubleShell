@@ -14,40 +14,40 @@ reaches `TranscriptStore` without using a VTE text-reading API.
 
 ## Repository map and mandatory paths
 
-The repository root is **`/home/nick/ServerData/repos/triagetty`**. This is a
+The repository root is **`/home/nick/ServerData/repos/TroubleShell`**. This is a
 standard `src`-layout Python project. The one and only importable application
 package is:
 
 ```text
-/home/nick/ServerData/repos/triagetty/src/triagetty/
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/
 ```
 
 Every path in this playbook is relative to that package directory unless it is
 written as an absolute path. Therefore the required Phase 3 files are exactly:
 
 ```text
-/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/transcript_store.py
-/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/output_capturer.py
-/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/capture_server.py
-/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pty_proxy.py
-/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pane.py
-/home/nick/ServerData/repos/triagetty/src/triagetty/llm/context_session.py
-/home/nick/ServerData/repos/triagetty/src/triagetty/window.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/transcript_store.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/output_capturer.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/capture_server.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/pty_proxy.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/pane.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/llm/context_session.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/window.py
 ```
 
 Tests belong only in:
 
 ```text
-/home/nick/ServerData/repos/triagetty/tests/
+/home/nick/ServerData/repos/TroubleShell/tests/
 ```
 
 Before each task, run `pwd` and `test -f pyproject.toml`; both must identify
-`/home/nick/ServerData/repos/triagetty` as the current repository root. Then
-run `test -d src/triagetty/terminal`. It already exists.
+`/home/nick/ServerData/repos/TroubleShell` as the current repository root. Then
+run `test -d src/troubleshell/terminal`. It already exists.
 
-**Never create** `/home/nick/ServerData/repos/triagetty/terminal/`,
-`/home/nick/ServerData/repos/triagetty/triagetty/`, or
-`/home/nick/ServerData/repos/triagetty/src/terminal/`. They are not Python
+**Never create** `/home/nick/ServerData/repos/TroubleShell/terminal/`,
+`/home/nick/ServerData/repos/TroubleShell/troubleshell/`, or
+`/home/nick/ServerData/repos/TroubleShell/src/terminal/`. They are not Python
 package locations in this project. If any such directory exists, stop and
 report it; do not create a competing copy of a module.
 
@@ -82,7 +82,7 @@ socket path as an argument and connects before it starts the shell.
 
 Why this exact transport:
 
-- TriageTTY is Linux-only.
+- TroubleShell is Linux-only.
 - `SOCK_SEQPACKET` preserves one `send()` call as one `recv()` message, so a
   proxy-read chunk remains one `TerminalEvent`.
 - A filesystem socket path avoids uncertain file-descriptor inheritance through
@@ -140,11 +140,11 @@ slice. Do not separately read `next_sequence` and later call `get_slice()`.
 The proxy is a normal executable Python module:
 
 ```text
-python -m triagetty.terminal.pty_proxy --capture-socket PATH --shell SHELL
+python -m troubleshell.terminal.pty_proxy --capture-socket PATH --shell SHELL
 ```
 
 The parent launches that command through VTE's existing `spawn_async` path.
-Use the same interpreter (`sys.executable`) that launched TriageTTY so the
+Use the same interpreter (`sys.executable`) that launched TroubleShell so the
 installed package is available.
 
 Inside the proxy:
@@ -177,13 +177,13 @@ the packet is at most 64 KiB.
 
 | File | Responsibility | Must not do |
 | --- | --- | --- |
-| `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/transcript_store.py` | locked append, deterministic slices, atomic snapshot slice | GTK, sockets, PTY, prompt policy |
-| `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/output_capturer.py` | append an exact non-empty raw output chunk | transform bytes, thread management |
-| `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/capture_server.py` | parent-side socket lifecycle and reader thread | GTK access, prompt/session policy |
-| `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pty_proxy.py` | proxy CLI, shell PTY, byte relay, capture packet sends | import GTK or app state |
-| `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pane.py` | VTE setup and spawn proxy argv | read VTE text as transcript |
-| `/home/nick/ServerData/repos/triagetty/src/triagetty/window.py` | construct/start/stop capture server; construct session; UI only | poll/read VTE transcript |
-| `/home/nick/ServerData/repos/triagetty/src/triagetty/llm/context_session.py` | atomic Send snapshot and acknowledgement lifecycle | thread synchronization details |
+| `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/transcript_store.py` | locked append, deterministic slices, atomic snapshot slice | GTK, sockets, PTY, prompt policy |
+| `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/output_capturer.py` | append an exact non-empty raw output chunk | transform bytes, thread management |
+| `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/capture_server.py` | parent-side socket lifecycle and reader thread | GTK access, prompt/session policy |
+| `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/pty_proxy.py` | proxy CLI, shell PTY, byte relay, capture packet sends | import GTK or app state |
+| `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/pane.py` | VTE setup and spawn proxy argv | read VTE text as transcript |
+| `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/window.py` | construct/start/stop capture server; construct session; UI only | poll/read VTE transcript |
+| `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/llm/context_session.py` | atomic Send snapshot and acknowledgement lifecycle | thread synchronization details |
 
 ## Implementation tasks
 
@@ -238,20 +238,20 @@ start; it must retain its original end sequence. It must never call
 **Allowed production file:**
 
 ```text
-/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/capture_server.py  (new)
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/capture_server.py  (new)
 ```
 
 **Allowed test file:**
 
 ```text
-/home/nick/ServerData/repos/triagetty/tests/test_capture_server.py  (new)
+/home/nick/ServerData/repos/TroubleShell/tests/test_capture_server.py  (new)
 ```
 
 Do not modify `window.py`, `pane.py`, `pty_proxy.py`, `ContextSession`,
 `TranscriptStore`, or any existing tests in this task. This task proves parent
 IPC only; nothing in the GUI is wired yet.
 
-1. Create `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/capture_server.py` with a GTK-free `CaptureServer` class.
+1. Create `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/capture_server.py` with a GTK-free `CaptureServer` class.
 2. Constructor accepts a `TerminalOutputCapturer` and an optional temporary
    directory parent for tests.
 3. `start()` creates a `tempfile.TemporaryDirectory`, binds a unique Unix
@@ -281,20 +281,20 @@ IPC only; nothing in the GUI is wired yet.
 **Allowed production file:**
 
 ```text
-/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pty_proxy.py  (new)
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/pty_proxy.py  (new)
 ```
 
 **Allowed test file:**
 
 ```text
-/home/nick/ServerData/repos/triagetty/tests/test_pty_proxy_unit.py  (new)
+/home/nick/ServerData/repos/TroubleShell/tests/test_pty_proxy_unit.py  (new)
 ```
 
 Do not wire the proxy to VTE, modify `TerminalPane`, add a capture server, or
 write subprocess integration tests in this task. This task is only pure proxy
 helpers and an importable CLI/relay implementation.
 
-1. Create `/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pty_proxy.py`; it must be importable with no GTK imports.
+1. Create `/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/pty_proxy.py`; it must be importable with no GTK imports.
 2. Add `main(argv: Sequence[str] | None = None) -> int` using `argparse` for
    `--capture-socket` and `--shell`.
 3. Implement small pure helpers first and test them:
@@ -317,7 +317,7 @@ helpers and an importable CLI/relay implementation.
 **Allowed files:**
 
 ```text
-/home/nick/ServerData/repos/triagetty/tests/test_pty_proxy_integration.py  (new)
+/home/nick/ServerData/repos/TroubleShell/tests/test_pty_proxy_integration.py  (new)
 ```
 
 If a narrowly necessary test seam is missing in `capture_server.py` or
@@ -346,13 +346,13 @@ wiring in this task.
 **Allowed production file:**
 
 ```text
-/home/nick/ServerData/repos/triagetty/src/triagetty/terminal/pane.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/terminal/pane.py
 ```
 
 **Allowed test file:**
 
 ```text
-/home/nick/ServerData/repos/triagetty/tests/test_terminal_pane.py
+/home/nick/ServerData/repos/TroubleShell/tests/test_terminal_pane.py
 ```
 
 Do not construct a `CaptureServer` here; that belongs to Task 7. Do not change
@@ -362,7 +362,7 @@ the application window or context session.
    save it. Do not add a transcript-reading method.
 2. Change `spawn()` to call VTE `spawn_async` with:
    ```python
-   [sys.executable, "-m", "triagetty.terminal.pty_proxy",
+   [sys.executable, "-m", "troubleshell.terminal.pty_proxy",
     "--capture-socket", capture_socket_path, "--shell", self.shell]
    ```
 3. Update fake VTE tests to assert that argv launches the proxy and contains
@@ -371,18 +371,18 @@ the application window or context session.
    them only after updating their existing callers/tests. They must have zero
    callers in the canonical context path.
 
-### 7. Wire lifecycle in `TriageWindow`
+### 7. Wire lifecycle in `TroubleWindow`
 
 **Allowed production file:**
 
 ```text
-/home/nick/ServerData/repos/triagetty/src/triagetty/window.py
+/home/nick/ServerData/repos/TroubleShell/src/troubleshell/window.py
 ```
 
 **Allowed test file:**
 
 ```text
-/home/nick/ServerData/repos/triagetty/tests/test_phase0_xfail.py
+/home/nick/ServerData/repos/TroubleShell/tests/test_phase0_xfail.py
 ```
 
 No proxy protocol changes, no store/session changes, and no documentation

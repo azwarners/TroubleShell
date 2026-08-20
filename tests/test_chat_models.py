@@ -4,7 +4,7 @@ Targets dataclass behavior and immutability.
 """
 
 import pytest
-from triagetty.chat.models import (
+from troubleshell.chat.models import (
     ChatMessage, ChatRequest, ChatResponse,
     TextSegment, CodeSegment,
 )

@@ -10,7 +10,7 @@ splitting, or error swallowing.
 
 from dataclasses import dataclass
 
-from triagetty.terminal.transcript_store import TranscriptStore
+from troubleshell.terminal.transcript_store import TranscriptStore
 
 
 @dataclass

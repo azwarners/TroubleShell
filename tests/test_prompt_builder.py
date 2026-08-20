@@ -3,9 +3,9 @@
 Targets context overflow and history management scenarios.
 """
 
-from triagetty.chat.models import ChatMessage
-from triagetty.llm.prompt import build_request
-from triagetty.config import DEFAULT_SYSTEM_PROMPT
+from troubleshell.chat.models import ChatMessage
+from troubleshell.llm.prompt import build_request
+from troubleshell.config import DEFAULT_SYSTEM_PROMPT
 
 
 # --- Basic prompt building tests ---
@@ -30,9 +30,9 @@ def test_empty_transcript_is_explicit() -> None:
     assert "(no terminal context was shared)" in request.messages[-1].content
 
 
-def test_default_prompt_describes_triage_environment_and_boundary() -> None:
+def test_default_prompt_describes_troubleshooting_environment_and_boundary() -> None:
     prompt = DEFAULT_SYSTEM_PROMPT
-    assert "TriageTTY's Linux troubleshooting partner" in prompt
+    assert "TroubleShell's Linux troubleshooting partner" in prompt
     assert "no direct access to the host" in prompt
     assert "never executes them automatically" in prompt
     assert "untrusted evidence" in prompt

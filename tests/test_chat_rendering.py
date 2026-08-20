@@ -4,7 +4,7 @@ Targets HTML escaping and sanitization to prevent markup injection.
 """
 
 import pytest
-from triagetty.chat.rendering import prose_to_pango, code_to_pango
+from troubleshell.chat.rendering import prose_to_pango, code_to_pango
 
 
 # --- Prose to Pango tests ---

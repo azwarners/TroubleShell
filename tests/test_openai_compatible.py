@@ -3,8 +3,8 @@
 import httpx
 import pytest
 
-from triagetty.chat.models import ChatMessage, ChatRequest
-from triagetty.llm.openai_compatible import OpenAICompatibleClient, chat_completion_payload
+from troubleshell.chat.models import ChatMessage, ChatRequest
+from troubleshell.llm.openai_compatible import OpenAICompatibleClient, chat_completion_payload
 
 
 def _req(text="hi"):

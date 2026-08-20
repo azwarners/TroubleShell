@@ -1,8 +1,8 @@
 """Prompt building with context management."""
 
-from triagetty.chat.models import ChatMessage, ChatRequest
-from triagetty.config import DEFAULT_SYSTEM_PROMPT
-from triagetty.terminal.transcript import estimate_tokens
+from troubleshell.chat.models import ChatMessage, ChatRequest
+from troubleshell.config import DEFAULT_SYSTEM_PROMPT
+from troubleshell.terminal.transcript import estimate_tokens
 
 # Maximum estimated tokens for the entire request
 MAX_REQUEST_TOKENS: int = 15000

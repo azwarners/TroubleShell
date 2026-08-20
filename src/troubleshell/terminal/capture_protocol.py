@@ -9,7 +9,7 @@ model request.
 from __future__ import annotations
 
 
-_PREFIX = b"\0triagetty:"
+_PREFIX = b"\0troubleshell:"
 _OUTPUT = _PREFIX + b"output:"
 _SYNC = _PREFIX + b"sync:"
 _SYNC_ACK = _PREFIX + b"sync-ack:"

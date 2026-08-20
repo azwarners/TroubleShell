@@ -4,7 +4,7 @@ Targets text sanitization and safety for terminal insertion.
 """
 
 import pytest
-from triagetty.terminal.insertion import insertable_text
+from troubleshell.terminal.insertion import insertable_text
 
 
 def test_insertable_text_preserves_command() -> None:

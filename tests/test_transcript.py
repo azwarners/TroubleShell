@@ -1,6 +1,6 @@
 """Tests for display normalization and whole-request estimation."""
 
-from triagetty.terminal.transcript import (
+from troubleshell.terminal.transcript import (
     estimate_tokens,
     estimate_request_tokens,
     normalize_transcript,

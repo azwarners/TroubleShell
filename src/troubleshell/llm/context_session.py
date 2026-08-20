@@ -8,9 +8,9 @@ Per the Terminal Context Blueprint, this module provides:
 from dataclasses import dataclass, field
 import re
 
-from triagetty.chat.models import ChatMessage
-from triagetty.terminal.transcript import estimate_tokens, render_terminal_stream
-from triagetty.terminal.transcript_store import TranscriptSlice, TranscriptStore
+from troubleshell.chat.models import ChatMessage
+from troubleshell.terminal.transcript import estimate_tokens, render_terminal_stream
+from troubleshell.terminal.transcript_store import TranscriptSlice, TranscriptStore
 
 
 _TERMINAL_CONTEXT_RE = re.compile(

@@ -9,7 +9,7 @@ Validates:
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from triagetty.terminal.transcript_store import TranscriptStore
+from troubleshell.terminal.transcript_store import TranscriptStore
 
 
 class TestSnapshotSliceConsistency:

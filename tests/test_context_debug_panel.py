@@ -1,7 +1,7 @@
 """Tests for the context debugging information shown by the GTK shell."""
 
-from triagetty.chat.models import ChatMessage, ChatRequest
-from triagetty.window import TriageWindow
+from troubleshell.chat.models import ChatMessage, ChatRequest
+from troubleshell.window import TroubleWindow
 
 
 class _Label:
@@ -17,7 +17,7 @@ class _Config:
 
 
 def test_context_debug_panel_shows_actual_outbound_payload_and_usage() -> None:
-    window = object.__new__(TriageWindow)
+    window = object.__new__(TroubleWindow)
     window.config = _Config()
     window.context_used_label = _Label()
     window.context_tokens_label = _Label()
@@ -49,7 +49,7 @@ def test_context_debug_panel_shows_actual_outbound_payload_and_usage() -> None:
 
 
 def test_context_debug_panel_replaces_estimate_with_server_count() -> None:
-    window = object.__new__(TriageWindow)
+    window = object.__new__(TroubleWindow)
     window.config = _Config()
     window.context_used_label = _Label()
 
@@ -61,7 +61,7 @@ def test_context_debug_panel_replaces_estimate_with_server_count() -> None:
 
 
 def test_context_debug_panel_uses_prior_provider_count_to_calibrate_next_send() -> None:
-    window = object.__new__(TriageWindow)
+    window = object.__new__(TroubleWindow)
     window.config = _Config()
     window.context_used_label = _Label()
     window.context_tokens_label = _Label()

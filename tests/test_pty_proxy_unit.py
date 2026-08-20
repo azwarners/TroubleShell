@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from triagetty.terminal import pty_proxy
+from troubleshell.terminal import pty_proxy
 
 
 def test_write_all_handles_partial_writes(monkeypatch):
@@ -42,7 +42,7 @@ def test_capture_packet_failure_is_fatal():
 
 
 def test_proxy_module_does_not_require_gi():
-    assert "gi" not in sys.modules or pty_proxy.__name__ == "triagetty.terminal.pty_proxy"
+    assert "gi" not in sys.modules or pty_proxy.__name__ == "troubleshell.terminal.pty_proxy"
 
 
 def test_main_requires_proxy_arguments():

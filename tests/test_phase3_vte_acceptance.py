@@ -4,9 +4,9 @@ import time
 
 import pytest
 
-from triagetty.terminal.capture_server import CaptureServer
-from triagetty.terminal.output_capturer import TerminalOutputCapturer
-from triagetty.terminal.transcript_store import TranscriptStore
+from troubleshell.terminal.capture_server import CaptureServer
+from troubleshell.terminal.output_capturer import TerminalOutputCapturer
+from troubleshell.terminal.transcript_store import TranscriptStore
 
 
 def _wait_for(predicate, timeout=5):
@@ -51,7 +51,7 @@ def test_real_vte_tiny_scrollback_does_not_limit_capture(tmp_path):
     try:
         terminal.spawn_async(
             Vte.PtyFlags.DEFAULT, None,
-            [sys.executable, "-m", "triagetty.terminal.pty_proxy", "--capture-socket", path,
+            [sys.executable, "-m", "troubleshell.terminal.pty_proxy", "--capture-socket", path,
              "--shell", str(wrapper)],
             None, GLib.SpawnFlags.DEFAULT, None, None, -1, None, child_exited, None,
         )

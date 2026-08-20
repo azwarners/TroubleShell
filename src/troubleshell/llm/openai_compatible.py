@@ -2,7 +2,7 @@
 
 import httpx
 
-from triagetty.chat.models import ChatRequest, ChatResponse
+from troubleshell.chat.models import ChatRequest, ChatResponse
 
 
 def chat_completion_payload(request: ChatRequest) -> dict[str, object]:

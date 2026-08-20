@@ -4,8 +4,8 @@ Targets robustness against various markdown formats and edge cases.
 """
 
 import pytest
-from triagetty.chat.parser import parse_response
-from triagetty.chat.models import CodeSegment, TextSegment
+from troubleshell.chat.parser import parse_response
+from troubleshell.chat.models import CodeSegment, TextSegment
 
 
 # --- Basic parsing tests ---

@@ -3,14 +3,14 @@ import threading
 import time
 import pytest
 
-from triagetty.terminal.capture_protocol import (
+from troubleshell.terminal.capture_protocol import (
     decode_proxy_packet,
     output_packet,
     sync_ack_packet,
 )
-from triagetty.terminal.capture_server import CaptureServer
-from triagetty.terminal.output_capturer import TerminalOutputCapturer
-from triagetty.terminal.transcript_store import TranscriptStore
+from troubleshell.terminal.capture_server import CaptureServer
+from troubleshell.terminal.output_capturer import TerminalOutputCapturer
+from troubleshell.terminal.transcript_store import TranscriptStore
 
 
 def wait_for(predicate):

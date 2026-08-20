@@ -141,7 +141,7 @@ def run_proxy(capture_socket_path: str, shell: str) -> int:
     try:
         capture.connect(capture_socket_path)
     except OSError as exc:
-        print(f"triagetty proxy: capture connection failed: {exc}", file=sys.stderr)
+        print(f"troubleshell proxy: capture connection failed: {exc}", file=sys.stderr)
         capture.close()
         return 1
 
@@ -221,7 +221,7 @@ def run_proxy(capture_socket_path: str, shell: str) -> int:
         code = process.returncode
         return 0 if code is None or code < 0 else code
     except Exception as exc:
-        print(f"triagetty proxy: relay failed: {exc}", file=sys.stderr)
+        print(f"troubleshell proxy: relay failed: {exc}", file=sys.stderr)
         return 1
     finally:
         selector.close()
@@ -241,7 +241,7 @@ def run_proxy(capture_socket_path: str, shell: str) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="TriageTTY PTY capture proxy")
+    parser = argparse.ArgumentParser(description="TroubleShell PTY capture proxy")
     parser.add_argument("--capture-socket", required=True)
     parser.add_argument("--shell", required=True)
     args = parser.parse_args(argv)

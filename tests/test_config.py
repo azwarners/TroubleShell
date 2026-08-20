@@ -5,7 +5,7 @@ Targets config loading/saving edge cases and persistence.
 
 import pytest
 from pathlib import Path
-from triagetty.config import Config, config_path, load_config, save_config, _toml_value, DEFAULT_SYSTEM_PROMPT
+from troubleshell.config import Config, config_path, load_config, save_config, _toml_value, DEFAULT_SYSTEM_PROMPT
 
 
 def test_config_default_values() -> None:
@@ -69,13 +69,13 @@ def test_config_is_frozen() -> None:
 def test_config_path_uses_xdg_config_home() -> None:
     """Config path should use XDG_CONFIG_HOME when set."""
     path = config_path(environ={"XDG_CONFIG_HOME": "/custom/config"})
-    assert path == Path("/custom/config/triagetty/config.toml")
+    assert path == Path("/custom/config/troubleshell/config.toml")
 
 
 def test_config_path_uses_home_config() -> None:
     """Config path should use ~/.config when XDG_CONFIG_HOME not set."""
     path = config_path(environ={})
-    assert "triagetty" in str(path)
+    assert "troubleshell" in str(path)
     assert path.name == "config.toml"
 
 

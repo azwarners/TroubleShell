@@ -28,7 +28,7 @@ gi.require_version("Gio", "2.0")
 from gi.repository import Gio
 
 
-class TriageWindow:
+class TroubleWindow:
     def __init__(self, config: Config) -> None:
         try:
             import gi
@@ -45,13 +45,13 @@ class TriageWindow:
         self._pango = Pango
         self.config = config
         self.application = Gtk.Application(
-            application_id="org.triagetty.TriageTTY",
+            application_id="org.troubleshell.TroubleShell",
             flags=Gio.ApplicationFlags.NON_UNIQUE
         )
         self.application.connect("activate", self._activate)
 
     def _activate(self, application: object) -> None:
-        self.window = self._gtk.ApplicationWindow(application=application, title="TriageTTY")
+        self.window = self._gtk.ApplicationWindow(application=application, title="TroubleShell")
         self.window.set_default_size(1200, 760)
         css = self._gtk.CssProvider()
         css.load_from_data(b"""
