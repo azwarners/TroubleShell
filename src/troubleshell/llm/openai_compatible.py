@@ -1,23 +1,31 @@
 """OpenAI-compatible API client with detailed error reporting."""
 
+from collections.abc import AsyncIterator
+import json
+
 import httpx
 
 from troubleshell.chat.models import ChatRequest, ChatResponse
 
 
-def chat_completion_payload(request: ChatRequest) -> dict[str, object]:
+def chat_completion_payload(
+    request: ChatRequest, *, stream: bool = False
+) -> dict[str, object]:
     """Return the exact JSON-compatible body sent to the chat endpoint.
 
     Keeping this conversion in one place lets the UI expose an accurate debug
     representation without duplicating the client request format.
     """
-    return {
+    payload: dict[str, object] = {
         "model": request.model,
         "messages": [
             {"role": message.role, "content": message.content}
             for message in request.messages
         ],
     }
+    if stream:
+        payload["stream"] = True
+    return payload
 
 
 class OpenAICompatibleClient:
@@ -79,13 +87,91 @@ class OpenAICompatibleClient:
                 f"Unexpected error calling {self.base_url}: {type(exc).__name__}: {exc}"
             ) from exc
 
+    async def stream(self, request: ChatRequest) -> AsyncIterator[ChatResponse]:
+        """Yield text fragments from an OpenAI-compatible SSE response."""
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        payload = chat_completion_payload(request, stream=True)
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, verify=self.verify_tls, transport=self.transport
+            ) as client:
+                async with client.stream(
+                    "POST", f"{self.base_url}/chat/completions",
+                    headers=headers, json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "").lower()
+                    if "text/event-stream" not in content_type:
+                        body = await response.aread()
+                        fallback = httpx.Response(
+                            response.status_code, headers=response.headers,
+                            content=body, request=response.request,
+                        )
+                        yield self._parse_response(fallback)
+                        return
+
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if not data:
+                            continue
+                        if data == "[DONE]":
+                            return
+                        try:
+                            event = json.loads(data)
+                        except json.JSONDecodeError as exc:
+                            raise ValueError(
+                                f"The model endpoint returned invalid streaming data: {data[:200]}"
+                            ) from exc
+                        if not isinstance(event, dict):
+                            continue
+                        usage = event.get("usage")
+                        prompt_tokens = (
+                            usage.get("prompt_tokens")
+                            if isinstance(usage, dict) else None
+                        )
+                        choices = event.get("choices")
+                        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                            delta = choices[0].get("delta")
+                            reasoning = next(
+                                (delta[key] for key in ("reasoning_content", "reasoning", "thinking")
+                                 if isinstance(delta, dict) and isinstance(delta.get(key), str)),
+                                "",
+                            )
+                            if reasoning:
+                                yield ChatResponse("", reasoning=reasoning)
+                            fragment = delta.get("content") if isinstance(delta, dict) else None
+                            if isinstance(fragment, str) and fragment:
+                                yield ChatResponse(fragment)
+                        if isinstance(prompt_tokens, int):
+                            yield ChatResponse("", prompt_tokens=prompt_tokens)
+        except httpx.ConnectError as exc:
+            raise ConnectionError(
+                f"Failed to connect to {self.base_url}. Is the LLM server running?"
+            ) from exc
+        except (httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+            raise TimeoutError(
+                f"LLM server at {self.base_url} did not respond within "
+                f"{self._timeout_description()}."
+            ) from exc
+        except httpx.NetworkError as exc:
+            raise ConnectionError(f"Network error connecting to {self.base_url}: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            self._handle_http_error(exc)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Unexpected error calling {self.base_url}: {type(exc).__name__}: {exc}"
+            ) from exc
+
     def _timeout_description(self) -> str:
         return f"{self.timeout}s" if self.timeout is not None else "the configured timeout"
 
     def _parse_response(self, response: httpx.Response) -> ChatResponse:
         try:
             payload = response.json()
-            content = payload["choices"][0]["message"]["content"]
+            message = payload["choices"][0]["message"]
+            content = message["content"]
         except (KeyError, IndexError, TypeError) as exc:
             body = response.text[:500] if response.text else "(empty)"
             raise ValueError(
@@ -100,6 +186,11 @@ class OpenAICompatibleClient:
         prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
         return ChatResponse(
             content,
+            reasoning=next(
+                (message[key] for key in ("reasoning_content", "reasoning", "thinking")
+                 if isinstance(message.get(key), str)),
+                "",
+            ),
             prompt_tokens=prompt_tokens if isinstance(prompt_tokens, int) else None,
         )
 

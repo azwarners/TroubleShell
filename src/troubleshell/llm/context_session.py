@@ -181,3 +181,32 @@ class ContextSession:
     def get_unacknowledged_count(self) -> int:
         """Return the number of unacknowledged terminal events."""
         return self.transcript.next_sequence - self.acknowledged_sequence
+
+    def redact_context(self, text: str) -> None:
+        """Remove user-selected terminal text from pending and saved context."""
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        if self.pending_slice is not None:
+            self.pending_slice = TranscriptSlice(
+                self.pending_slice.start_sequence,
+                self.pending_slice.end_sequence,
+                self.pending_slice.text.replace(text, ""),
+            )
+        self.history = [
+            ChatMessage(message.role, _redact_terminal_context(message.content, text))
+            if message.role == "user" else message
+            for message in self.history
+        ]
+
+
+def _redact_terminal_context(content: str, text: str) -> str:
+    """Redact text only inside terminal-context blocks in a saved message."""
+    def replace(match: re.Match[str]) -> str:
+        body = match.group(1).replace(text, "")
+        return f"<terminal_context>\n{body}\n</terminal_context>"
+
+    return re.sub(
+        r"<terminal_context>\n(.*?)\n</terminal_context>",
+        replace,
+        content,
+        flags=re.DOTALL,
+    )

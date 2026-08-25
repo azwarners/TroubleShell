@@ -79,9 +79,11 @@ verify_tls = true
 debug_context_payload = false
 # Unlimited by default; set a number of seconds to enable a request timeout.
 request_timeout = "none"
+# Keep every terminal line for the session; use a positive number to cap it.
+terminal_scrollback_lines = -1
 ```
 
-The endpoint, model, TLS setting, shell, provider context limit, request timeout, system prompt, and context-payload debugging can be edited directly in `config.toml`; restart TroubleShell after changing them. Set `request_timeout` to a number of seconds, or leave it as `"none"` for no timeout. Set `debug_context_payload = true` to expose the full outbound request under **Context**; it is disabled by default because the payload can include sensitive terminal and conversation data.
+The endpoint, model, TLS setting, shell, terminal scrollback, provider context limit, request timeout, system prompt, and context-payload debugging can be edited directly in `config.toml`; restart TroubleShell after changing them. Set `terminal_scrollback_lines` to `-1` (or `"none"`) for no terminal scrollback limit, or to a positive number to cap retained lines. Set `request_timeout` to a number of seconds, or leave it as `"none"` for no timeout. Set `debug_context_payload = true` to expose the full outbound request under **Context**; it is disabled by default because the payload can include sensitive terminal and conversation data.
 
 The API key field is persisted locally when used. Treat the configuration file as sensitive and keep its permissions restricted. Desktop keyring integration is a future improvement.
 
@@ -90,8 +92,9 @@ The API key field is persisted locally when used. Treat the configuration file a
 1. Run commands normally in the embedded terminal.
 2. Ask a troubleshooting question in the multiline chat field.
 3. Review the captured context and the model’s explanation.
-4. Review any suggested command before selecting **Insert** or **Copy**.
-5. If inserted, edit the command in the terminal and press Enter yourself.
+4. Select private or irrelevant terminal text, right-click, and choose **Remove from context**. TroubleShell removes it from the local transcript and rebuilds the visible terminal scrollback; this cannot erase text already sent to a provider.
+5. Review any suggested command before selecting **Insert** or **Copy**.
+6. If inserted, edit the command in the terminal and press Enter yourself.
 
 The chat pane reports context information for each request. The model receives context only at submission time; TroubleShell does not continuously stream terminal output. Context is compacted as one whole request only near the provider limit.
 

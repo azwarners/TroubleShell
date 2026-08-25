@@ -9,6 +9,17 @@ class FakeTerminal:
         self.focused = False
         self.spawned = None
         self.clipboard_actions: list[str] = []
+        self.scrollback_lines = None
+        self.redraw_data = None
+
+    def set_scrollback_lines(self, lines: int) -> None:
+        self.scrollback_lines = lines
+
+    def reset(self, *args) -> None:
+        self.redraw_data = ("reset", args)
+
+    def feed(self, data: bytes) -> None:
+        self.redraw_data = ("feed", data)
 
     def feed_child(self, text: bytes) -> None:
         self.inserted.append(text)
@@ -75,6 +86,32 @@ def test_terminal_pane_execute_handles_multiline_command() -> None:
 def test_terminal_pane_spawn_uses_configured_shell() -> None:
     pane = TerminalPane(FakeTerminal(), shell="/bin/zsh")
     assert pane.shell == "/bin/zsh"
+
+
+def test_terminal_pane_defaults_to_unlimited_scrollback() -> None:
+    terminal = FakeTerminal()
+    pane = TerminalPane(terminal, shell="/bin/bash")
+    assert pane.scrollback_lines == -1
+    assert terminal.scrollback_lines == -1
+
+
+def test_terminal_pane_applies_configured_scrollback() -> None:
+    terminal = FakeTerminal()
+    TerminalPane(terminal, shell="/bin/bash", scrollback_lines=5000)
+    assert terminal.scrollback_lines == 5000
+
+
+def test_terminal_pane_redraws_without_sending_to_shell() -> None:
+    terminal = FakeTerminal()
+    TerminalPane(terminal, shell="/bin/bash").redraw(b"visible output\n")
+    assert terminal.redraw_data == ("feed", b"visible output\n")
+
+
+def test_terminal_pane_redraw_preserves_ansi_output_around_redaction() -> None:
+    terminal = FakeTerminal()
+    raw = b"before\n\x1b[01;34mdir\x1b[0m  after\n"
+    TerminalPane(terminal, shell="/bin/bash").redraw(raw.replace(b"dir", b""))
+    assert terminal.redraw_data == ("feed", b"before\n\x1b[01;34m\x1b[0m  after\n")
 
 
 def test_terminal_pane_spawn_with_default_shell() -> None:

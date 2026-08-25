@@ -35,6 +35,11 @@ def test_chat_completion_payload_matches_openai_message_format():
     }
 
 
+def test_chat_completion_payload_can_request_streaming():
+    payload = chat_completion_payload(_req(), stream=True)
+    assert payload["stream"] is True
+
+
 @pytest.mark.asyncio
 async def test_openai_compatible_client_posts_chat_request():
     seen = {}
@@ -56,6 +61,32 @@ async def test_openai_compatible_client_posts_chat_request():
     assert seen["url"] == "https://example.test/v1/chat/completions"
     assert seen["auth"] == "Bearer secret"
     assert '"model":"model"' in str(seen["json"])
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_client_streams_sse_fragments_and_usage():
+    body = (
+        b'data: {"choices":[{"delta":{"reasoning_content":"plan "}}]}\n\n'
+        b'data: {"choices":[{"delta":{"content":"hel"}}]}\n\n'
+        b'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n'
+        b'data: {"choices":[],"usage":{"prompt_tokens":42}}\n\n'
+        b"data: [DONE]\n\n"
+    )
+
+    def handler(request):
+        assert request.read()
+        return httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, content=body
+        )
+
+    client = OpenAICompatibleClient(
+        base_url="http://test/v1", transport=httpx.MockTransport(handler)
+    )
+    chunks = [chunk async for chunk in client.stream(_req())]
+
+    assert [chunk.content for chunk in chunks] == ["", "hel", "lo", ""]
+    assert chunks[0].reasoning == "plan "
+    assert chunks[-1].prompt_tokens == 42
 
 
 def test_openai_compatible_client_defaults_to_no_timeout():
@@ -124,6 +155,24 @@ async def test_openai_compatible_client_preserves_reported_prompt_tokens():
     response = await client.complete(_req())
 
     assert response.prompt_tokens == 123
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_client_preserves_reasoning_content():
+    client = OpenAICompatibleClient(
+        base_url="http://test/v1",
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={
+            "choices": [{"message": {
+                "content": "final answer",
+                "reasoning_content": "private reasoning",
+            }}],
+        })),
+    )
+
+    response = await client.complete(_req())
+
+    assert response.content == "final answer"
+    assert response.reasoning == "private reasoning"
 
 
 @pytest.mark.asyncio

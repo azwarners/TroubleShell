@@ -27,6 +27,9 @@ class Config:
     # None disables the HTTP request timeout. TOML uses "none" for this value.
     request_timeout: float | None = None
     shell: str = "/bin/bash"
+    # VTE uses -1 for unlimited scrollback. Positive values cap the number
+    # of lines retained; zero disables scrollback.
+    terminal_scrollback_lines: int = -1
     terminal_font: str = "Monospace 10"
     terminal_font_size: int = 10
     chat_font_size: int = 10
@@ -57,6 +60,12 @@ def load_config(path: Path | None = None) -> Config:
             values["request_timeout"] = None
         else:
             values["request_timeout"] = float(timeout)
+    if isinstance(values["terminal_scrollback_lines"], str):
+        scrollback = values["terminal_scrollback_lines"].strip().lower()
+        if scrollback in {"none", "off", "disabled", "infinite", "unlimited"}:
+            values["terminal_scrollback_lines"] = -1
+        else:
+            values["terminal_scrollback_lines"] = int(scrollback)
     # Preserve the pre-settings-area name for existing local configurations.
     if "system_prompt" not in raw and "system_prompt_override" in raw:
         values["system_prompt"] = raw["system_prompt_override"] or DEFAULT_SYSTEM_PROMPT

@@ -15,11 +15,16 @@ class TerminalPane:
     """Own the VTE widget and proxy process; transcript policy lives elsewhere."""
 
     def __init__(self, terminal: "Vte.Terminal", *, shell: str,
-                 capture_socket_path: str = "", vte: object | None = None) -> None:
+                 capture_socket_path: str = "", vte: object | None = None,
+                 scrollback_lines: int = -1) -> None:
         self.widget: "Vte.Terminal" = terminal
         self.shell = shell
         self.capture_socket_path = capture_socket_path
         self.vte = vte
+        self.scrollback_lines = scrollback_lines
+        set_scrollback_lines = getattr(terminal, "set_scrollback_lines", None)
+        if callable(set_scrollback_lines):
+            set_scrollback_lines(scrollback_lines)
 
     def spawn(self, vte: object) -> None:
         """Start the configured shell through the PTY capture proxy."""
@@ -37,6 +42,13 @@ class TerminalPane:
         """Insert text and send Enter to execute immediately."""
         self.widget.feed_child(insertable_text(text).encode("utf-8"))
         self.widget.feed_child(b"\n")
+        self.widget.grab_focus()
+
+    def redraw(self, raw: bytes) -> None:
+        """Rebuild VTE display/scrollback from redacted transcript bytes."""
+        self.widget.reset(True, True)
+        if raw:
+            self.widget.feed(raw)
         self.widget.grab_focus()
 
     def handle_clipboard_key(self, key: int, state: int, *,

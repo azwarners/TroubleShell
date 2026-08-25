@@ -17,6 +17,7 @@ def test_config_default_values() -> None:
     assert config.max_context_tokens == 8000
     assert config.request_timeout is None
     assert config.shell == "/bin/bash"
+    assert config.terminal_scrollback_lines == -1
     assert config.terminal_font == "Monospace 10"
     assert config.terminal_font_size == 10
     assert config.chat_font_size == 10
@@ -150,6 +151,18 @@ def test_load_config_supports_unlimited_request_timeout(tmp_path: Path) -> None:
     config_path = tmp_path / "unlimited.toml"
     config_path.write_text('request_timeout = "none"\n')
     assert load_config(config_path).request_timeout is None
+
+
+def test_load_config_supports_configurable_terminal_scrollback(tmp_path: Path) -> None:
+    config_path = tmp_path / "scrollback.toml"
+    config_path.write_text("terminal_scrollback_lines = 5000\n")
+    assert load_config(config_path).terminal_scrollback_lines == 5000
+
+
+def test_load_config_supports_unlimited_terminal_scrollback(tmp_path: Path) -> None:
+    config_path = tmp_path / "unlimited-scrollback.toml"
+    config_path.write_text('terminal_scrollback_lines = "none"\n')
+    assert load_config(config_path).terminal_scrollback_lines == -1
 
 
 def test_load_config_ignores_unknown_keys(tmp_path: Path) -> None:

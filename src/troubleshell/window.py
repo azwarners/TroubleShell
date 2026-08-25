@@ -69,6 +69,13 @@ class TroubleWindow:
         # completion.  Until then, use the ordinary rough estimate for the UI;
         # admission control below always uses its separate conservative value.
         self._provider_token_ratio = 1.0
+        self._stream_separator = None
+        self._stream_box = None
+        self._stream_reasoning_expander = None
+        self._stream_reasoning_label = None
+        self._stream_label = None
+        self._stream_content = ""
+        self._stream_reasoning_content = ""
         # Phase 1: Context session state machine
         self.transcript_store = TranscriptStore()
         self.context_session = ContextSession(transcript=self.transcript_store)
@@ -79,6 +86,7 @@ class TroubleWindow:
         self.terminal_pane = TerminalPane(
             self._vte.Terminal(), shell=self.config.shell,
             capture_socket_path=capture_socket_path, vte=self._vte,
+            scrollback_lines=getattr(self.config, "terminal_scrollback_lines", -1),
         )
         self.terminal_pane.widget.add_css_class("terminal-frame")
         self.terminal_pane.spawn(self._vte)
@@ -207,13 +215,20 @@ class TroubleWindow:
         copy_action.connect("activate", lambda *_args: terminal.copy_clipboard())
         paste_action = Gio.SimpleAction.new("paste", None)
         paste_action.connect("activate", lambda *_args: terminal.paste_clipboard())
+        remove_context_action = Gio.SimpleAction.new("remove-from-context", None)
+        remove_context_action.connect("activate", self._remove_selected_from_context)
+        remove_context_action.set_enabled(False)
         actions.add_action(copy_action)
         actions.add_action(paste_action)
+        actions.add_action(remove_context_action)
         terminal.insert_action_group("terminal", actions)
+        self._remove_context_action = remove_context_action
+        terminal.connect("selection-changed", self._on_terminal_selection_changed)
 
         menu = Gio.Menu()
         menu.append("Copy", "terminal.copy")
         menu.append("Paste", "terminal.paste")
+        menu.append("Remove from context", "terminal.remove-from-context")
         terminal.set_context_menu_model(menu)
 
         key_controller = self._gtk.EventControllerKey.new()
@@ -221,6 +236,26 @@ class TroubleWindow:
         key_controller.connect("key-pressed", self._on_terminal_key_pressed)
         terminal.add_controller(key_controller)
         self.terminal_key_controller = key_controller
+
+    def _on_terminal_selection_changed(self, terminal: object) -> None:
+        action = getattr(self, "_remove_context_action", None)
+        if action is not None:
+            action.set_enabled(bool(terminal.get_has_selection()))
+
+    def _remove_selected_from_context(self, _action: object, _parameter: object) -> None:
+        terminal = self.terminal_pane.widget
+        selected = terminal.get_text_selected(self._vte.Format.TEXT)
+        if not isinstance(selected, str) or not selected:
+            return
+        redacted, raw = self.transcript_store.redact_text(selected)
+        if not redacted:
+            self.status_label.set_text("Could not match selection in terminal context")
+            return
+        self.context_session.redact_context(selected)
+        self.terminal_pane.redraw(raw)
+        terminal.unselect_all()
+        self._on_terminal_selection_changed(terminal)
+        self.status_label.set_text("Selected text removed from future context")
 
     def _on_terminal_key_pressed(self, _controller: object, key: int,
                                  _keycode: int, state: int) -> bool:
@@ -327,6 +362,7 @@ class TroubleWindow:
         self.request_id += 1
         request_id = self.request_id
         self.cancel_event = threading.Event()
+        self._begin_stream_response()
         threading.Thread(target=self._complete_in_background,
                           args=(client, request, request_id, self.cancel_event), daemon=True).start()
 
@@ -352,7 +388,7 @@ class TroubleWindow:
             f"Max context tokens: {self.config.max_context_tokens:,}"
         )
         self.context_payload_label.set_text(
-            json.dumps(chat_completion_payload(request), ensure_ascii=False, indent=2)
+            json.dumps(chat_completion_payload(request, stream=True), ensure_ascii=False, indent=2)
         )
 
     def _show_context_usage(self, tokens: int, *, source: str) -> None:
@@ -368,16 +404,47 @@ class TroubleWindow:
     def _complete_in_background(self, client: OpenAICompatibleClient, request: object,
                                 request_id: int, cancel_event: threading.Event) -> None:
         try:
-            response = asyncio.run(client.complete(request))
+            response = asyncio.run(
+                self._stream_completion(client, request, request_id, cancel_event)
+            )
             self._glib.idle_add(self._finish_request, response, None, request_id, cancel_event)
         except Exception as exc:  # GTK boundary: report provider failures on the UI thread.
             self._glib.idle_add(self._finish_request, None, str(exc), request_id, cancel_event)
+
+    async def _stream_completion(self, client: OpenAICompatibleClient, request: object,
+                                 request_id: int, cancel_event: threading.Event) -> ChatResponse:
+        """Forward provider fragments to GTK while collecting the final answer."""
+        fragments: list[str] = []
+        reasoning_fragments: list[str] = []
+        prompt_tokens: int | None = None
+        async for chunk in client.stream(request):
+            if cancel_event.is_set():
+                break
+            if chunk.content:
+                fragments.append(chunk.content)
+                self._glib.idle_add(
+                    self._append_stream_delta, chunk.content, request_id, cancel_event
+                )
+            if chunk.reasoning:
+                reasoning_fragments.append(chunk.reasoning)
+                self._glib.idle_add(
+                    self._append_stream_reasoning_delta,
+                    chunk.reasoning, request_id, cancel_event,
+                )
+            if isinstance(chunk.prompt_tokens, int):
+                prompt_tokens = chunk.prompt_tokens
+        return ChatResponse(
+            "".join(fragments),
+            reasoning="".join(reasoning_fragments),
+            prompt_tokens=prompt_tokens,
+        )
 
     def _cancel_request(self, _button: object) -> None:
         if self.cancel_event is None:
             return
         self.cancel_event.set()
         self.cancel_event = None
+        self._remove_stream_response()
         # Phase 1: Rollback the session state on cancellation
         self.context_session.rollback_on_failure()
         self._pending_request_rough_tokens = None
@@ -391,6 +458,7 @@ class TroubleWindow:
         if request_id != self.request_id or cancel_event.is_set():
             return False
         if error is not None:
+            self._remove_stream_response()
             self._append_text(f"Request failed: {error}\n\n")
             # Phase 1: Rollback the session state on failure
             self.context_session.rollback_on_failure()
@@ -409,6 +477,7 @@ class TroubleWindow:
             else:
                 self.status_label.set_text("Request failed")
         elif response is not None:
+            self._remove_stream_response()
             # Phase 1: Commit the session state on success
             # Commit using the stored question from snapshot
             self.context_session.commit_on_success(response.content)
@@ -424,6 +493,8 @@ class TroubleWindow:
                     )
                 self._show_context_usage(response.prompt_tokens, source="reported")
             self._pending_request_rough_tokens = None
+            if isinstance(response.reasoning, str) and response.reasoning and hasattr(self, "_gtk"):
+                self._append_reasoning(response.reasoning)
             self._append_response(response.content)
             self.status_label.set_text("Ready")
         self.question_buffer.set_text("")
@@ -432,6 +503,89 @@ class TroubleWindow:
         self.cancel_button.set_visible(False)
         self.cancel_event = None
         return False
+
+    def _begin_stream_response(self) -> None:
+        """Create the temporary response label shown during generation."""
+        # Some state-machine tests exercise submission without constructing
+        # the GTK window; streaming remains fully functional in the real UI.
+        if not hasattr(self, "_gtk"):
+            return
+        separator = self._gtk.Separator(orientation=self._gtk.Orientation.HORIZONTAL)
+        separator.add_css_class("message-separator")
+        stream_box = self._gtk.Box(orientation=self._gtk.Orientation.VERTICAL, spacing=8)
+        label = self._gtk.Label(label="", use_markup=True, wrap=True, xalign=0)
+        label.set_selectable(True)
+        label.set_hexpand(True)
+        stream_box.append(label)
+        self.response_box.append(separator)
+        self.response_box.append(stream_box)
+        self._stream_separator = separator
+        self._stream_box = stream_box
+        self._stream_label = label
+        self._stream_content = ""
+
+    def _append_stream_delta(self, delta: str, request_id: int,
+                             cancel_event: threading.Event) -> bool:
+        if request_id != self.request_id or cancel_event.is_set():
+            return False
+        label = getattr(self, "_stream_label", None)
+        if label is None:
+            return False
+        self._stream_content = getattr(self, "_stream_content", "") + delta
+        label.set_markup(prose_to_pango(self._stream_content))
+        self._glib.idle_add(self._scroll_response_to_bottom)
+        return False
+
+    def _append_stream_reasoning_delta(self, delta: str, request_id: int,
+                                       cancel_event: threading.Event) -> bool:
+        if request_id != self.request_id or cancel_event.is_set():
+            return False
+        stream_box = getattr(self, "_stream_box", None)
+        if stream_box is None:
+            return False
+        expander = getattr(self, "_stream_reasoning_expander", None)
+        label = getattr(self, "_stream_reasoning_label", None)
+        if expander is None or label is None:
+            expander = self._gtk.Expander(label="Reasoning")
+            expander.set_expanded(False)
+            label = self._gtk.Label(label="", use_markup=True, wrap=True, xalign=0)
+            label.set_selectable(True)
+            label.set_hexpand(True)
+            expander.set_child(label)
+            stream_box.prepend(expander)
+            self._stream_reasoning_expander = expander
+            self._stream_reasoning_label = label
+        current = getattr(self, "_stream_reasoning_content", "") + delta
+        self._stream_reasoning_content = current
+        label.set_markup(prose_to_pango(current))
+        return False
+
+    def _append_reasoning(self, reasoning: str) -> None:
+        expander = self._gtk.Expander(label="Reasoning")
+        expander.set_expanded(False)
+        label = self._gtk.Label(label=prose_to_pango(reasoning), use_markup=True,
+                                wrap=True, selectable=True, xalign=0)
+        label.set_hexpand(True)
+        expander.set_child(label)
+        self.response_box.append(expander)
+
+    def _remove_stream_response(self) -> None:
+        separator = getattr(self, "_stream_separator", None)
+        stream_box = getattr(self, "_stream_box", None)
+        label = getattr(self, "_stream_label", None)
+        if separator is not None:
+            self.response_box.remove(separator)
+        if stream_box is not None:
+            self.response_box.remove(stream_box)
+        elif label is not None:
+            self.response_box.remove(label)
+        self._stream_separator = None
+        self._stream_box = None
+        self._stream_reasoning_expander = None
+        self._stream_reasoning_label = None
+        self._stream_label = None
+        self._stream_content = ""
+        self._stream_reasoning_content = ""
 
     def _question_changed(self, _buffer: object) -> None:
         start, end = self.question_buffer.get_bounds()

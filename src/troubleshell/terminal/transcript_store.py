@@ -1,7 +1,7 @@
-"""Append-only terminal event storage for context management.
+"""Terminal event storage for context management.
 
 Per the Terminal Context Blueprint:
-- Pure Python, append-only in-memory log
+- Pure Python, append-only in-memory log except explicit user redaction
 - Only owner of captured terminal data
 - Events are immutable and assigned monotonically increasing sequence numbers
 - Distinguishes output vs input streams
@@ -41,7 +41,7 @@ class TranscriptSlice:
 
 @dataclass
 class TranscriptStore:
-    """Append-only in-memory log of terminal events.
+    """Append-only in-memory log of terminal events with explicit redaction.
 
     Per blueprint contract:
     - Pure Python, append-only in-memory log
@@ -119,3 +119,30 @@ class TranscriptStore:
         """Return True if no events have been captured."""
         with self._lock:
             return len(self._events) == 0
+
+    def redact_text(self, text: str) -> tuple[bool, bytes]:
+        """Remove the first exact UTF-8 occurrence and return redacted bytes.
+
+        Redaction is an explicit user action and intentionally rewrites event
+        payloads while preserving sequence numbers and event boundaries.
+        """
+        target = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+        if not target:
+            return False, b""
+        with self._lock:
+            combined = b"".join(event.raw for event in self._events)
+            start = combined.find(target)
+            if start < 0:
+                return False, b""
+            end = start + len(target)
+            offset = 0
+            for index, event in enumerate(self._events):
+                event_start = offset
+                event_end = offset + len(event.raw)
+                local_start = max(0, start - event_start)
+                local_end = min(len(event.raw), end - event_start)
+                if local_start < local_end:
+                    raw = event.raw[:local_start] + event.raw[local_end:]
+                    self._events[index] = TerminalEvent(event.sequence, event.stream, raw)
+                offset = event_end
+            return True, b"".join(event.raw for event in self._events)

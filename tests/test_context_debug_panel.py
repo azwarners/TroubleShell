@@ -44,7 +44,8 @@ def test_context_debug_panel_shows_actual_outbound_payload_and_usage() -> None:
       "role": "user",
       "content": "Inspect this terminal output."
     }
-  ]
+  ],
+  "stream": true
 }'''
 
 

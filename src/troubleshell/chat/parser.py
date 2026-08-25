@@ -34,7 +34,16 @@ def parse_response(markdown: str) -> tuple[TextSegment | CodeSegment, ...]:
             index += 1
         if index < len(lines):
             index += 1
-        segments.append(CodeSegment(language, "".join(code).rstrip("\n"), language in _SHELL_LANGUAGES))
+        # Models sometimes omit the language after the opening fence even
+        # when the block is clearly intended as a command. Treat an
+        # unlabeled block as shell code so the UI still offers Insert,
+        # Execute, and Copy. Explicitly labeled non-shell blocks remain
+        # display-only.
+        segments.append(CodeSegment(
+            language,
+            "".join(code).rstrip("\n"),
+            language is None or language in _SHELL_LANGUAGES,
+        ))
     # Only add non-empty prose segments at the end
     if prose:
         prose_text = "".join(prose)

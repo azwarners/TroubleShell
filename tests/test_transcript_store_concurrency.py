@@ -56,6 +56,18 @@ class TestSnapshotSliceConsistency:
         assert slice_.start_sequence == 1
         assert slice_.end_sequence == 2
 
+    def test_redact_text_preserves_sequences_and_removes_bytes(self):
+        store = TranscriptStore()
+        store.append("output", b"safe\nsecret")
+        store.append("output", b" value\n")
+
+        redacted, raw = store.redact_text("secret value")
+
+        assert redacted is True
+        assert raw == b"safe\n\n"
+        assert store.snapshot_slice(0).text == "safe\n\n"
+        assert [event.sequence for event in store.events] == [0, 1]
+
 
 class TestConcurrentAccess:
     """Tests for thread-safety of store operations."""

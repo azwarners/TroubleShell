@@ -79,6 +79,22 @@ class TestRequestSliceAtomic:
 
         assert session.build_request_payload() == ""
 
+    def test_redact_context_updates_pending_and_saved_messages(self):
+        store = TranscriptStore()
+        store.append("output", b"public secret\n")
+        session = ContextSession(transcript=store)
+        session.request_slice()
+        session.snapshot_for_send(ChatMessage(
+            "user", "<terminal_context>\npublic secret\n</terminal_context>\nQuestion"
+        ))
+        session.commit_on_success("answer")
+
+        session.request_slice()
+        session.redact_context("secret")
+
+        assert "secret" not in session.history[0].content
+        assert "secret" not in session.pending_slice.text
+
     def test_commit_advances_to_slice_end(self):
         """commit_on_success() advances acknowledged_sequence to slice.end_sequence."""
         store = TranscriptStore()

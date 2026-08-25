@@ -162,7 +162,7 @@ def test_parse_response_handles_empty_code_block() -> None:
 
 
 def test_parse_response_handles_code_block_with_no_language() -> None:
-    """Code blocks without language should not be insertable."""
+    """Unlabeled code blocks should still get shell command actions."""
     markdown = """```
 some code
 ```"""
@@ -170,7 +170,7 @@ some code
     assert len(segments) == 1
     assert isinstance(segments[0], CodeSegment)
     assert segments[0].language is None
-    assert segments[0].insertable is False
+    assert segments[0].insertable is True
 
 
 def test_parse_response_handles_nested_backticks_in_code() -> None:
