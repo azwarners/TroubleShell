@@ -1,6 +1,6 @@
 # Ubuntu 26.04 packaging and runtime
 
-TriageTTY is a normal user-installed Python desktop application using the system GTK 4 and VTE GTK 4 libraries. VTE is not vendored or bundled.
+TroubleShell is a normal user-installed Python desktop application using the system GTK 4 and VTE GTK 4 libraries. VTE is not vendored or bundled.
 
 Install the Ubuntu runtime dependencies:
 
@@ -14,7 +14,7 @@ sudo apt install -y \
   python3-venv
 ```
 
-Install TriageTTY into a repository-local virtual environment that can see the system GI bindings:
+Install TroubleShell into a repository-local virtual environment that can see the system GI bindings:
 
 ```sh
 python3 -m venv --system-site-packages .venv
@@ -29,8 +29,8 @@ Install a user-local application-menu entry:
 ./packaging/install-desktop.sh
 ```
 
-The installer writes the absolute path to the repository virtual environment's `triagetty` executable into the desktop entry. To use a different executable, set `TRIAGETTY_EXECUTABLE` when running the installer.
+The installer writes the absolute path to the repository virtual environment's `troubleshell` executable into the desktop entry. To use a different executable, set `TROUBLESHELL_EXECUTABLE` when running the installer.
 
 The bundled square PNG icon is installed into the user-local `hicolor/512x512/apps` icon directory. Its source lives in `packaging/` because it is a packaging asset, not an application runtime asset.
 
-The application needs a graphical GTK session. VNC and NoMachine sessions are supported in principle because TriageTTY runs inside the remote Linux desktop; SSH-only sessions are not a graphical runtime target.
+The application needs a graphical GTK session. VNC and NoMachine sessions are supported in principle because TroubleShell runs inside the remote Linux desktop; SSH-only sessions are not a graphical runtime target.

@@ -1,0 +1,240 @@
+"""OpenAI-compatible API client with detailed error reporting."""
+
+from collections.abc import AsyncIterator
+import json
+
+import httpx
+
+from troubleshell.chat.models import ChatRequest, ChatResponse
+
+
+def chat_completion_payload(
+    request: ChatRequest, *, stream: bool = False
+) -> dict[str, object]:
+    """Return the exact JSON-compatible body sent to the chat endpoint.
+
+    Keeping this conversion in one place lets the UI expose an accurate debug
+    representation without duplicating the client request format.
+    """
+    payload: dict[str, object] = {
+        "model": request.model,
+        "messages": [
+            {"role": message.role, "content": message.content}
+            for message in request.messages
+        ],
+    }
+    if stream:
+        payload["stream"] = True
+    return payload
+
+
+class OpenAICompatibleClient:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        api_key: str = "",
+        timeout: float | None = None,
+        verify_tls: bool = True,
+        transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.timeout = timeout
+        self.verify_tls = verify_tls
+        self.transport = transport
+
+    async def complete(self, request: ChatRequest) -> ChatResponse:
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        payload = chat_completion_payload(request)
+        
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                verify=self.verify_tls,
+                transport=self.transport
+            ) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload
+                )
+            response.raise_for_status()
+            return self._parse_response(response)
+        except httpx.ConnectError as exc:
+            raise ConnectionError(
+                f"Failed to connect to {self.base_url}. "
+                f"Is the LLM server running? (Connection refused or network unreachable)"
+            ) from exc
+        except httpx.ConnectTimeout as exc:
+            raise TimeoutError(
+                f"Connection to {self.base_url} timed out after {self._timeout_description()}. "
+                f"Is the LLM server responding?"
+            ) from exc
+        except httpx.ReadTimeout as exc:
+            raise TimeoutError(
+                f"LLM server at {self.base_url} did not respond within {self._timeout_description()}. "
+                f"The request may be too large or the server may be overloaded."
+            ) from exc
+        except httpx.NetworkError as exc:
+            raise ConnectionError(
+                f"Network error connecting to {self.base_url}: {exc}"
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            self._handle_http_error(exc)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Unexpected error calling {self.base_url}: {type(exc).__name__}: {exc}"
+            ) from exc
+
+    async def stream(self, request: ChatRequest) -> AsyncIterator[ChatResponse]:
+        """Yield text fragments from an OpenAI-compatible SSE response."""
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        payload = chat_completion_payload(request, stream=True)
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, verify=self.verify_tls, transport=self.transport
+            ) as client:
+                async with client.stream(
+                    "POST", f"{self.base_url}/chat/completions",
+                    headers=headers, json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "").lower()
+                    if "text/event-stream" not in content_type:
+                        body = await response.aread()
+                        fallback = httpx.Response(
+                            response.status_code, headers=response.headers,
+                            content=body, request=response.request,
+                        )
+                        yield self._parse_response(fallback)
+                        return
+
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if not data:
+                            continue
+                        if data == "[DONE]":
+                            return
+                        try:
+                            event = json.loads(data)
+                        except json.JSONDecodeError as exc:
+                            raise ValueError(
+                                f"The model endpoint returned invalid streaming data: {data[:200]}"
+                            ) from exc
+                        if not isinstance(event, dict):
+                            continue
+                        usage = event.get("usage")
+                        prompt_tokens = (
+                            usage.get("prompt_tokens")
+                            if isinstance(usage, dict) else None
+                        )
+                        choices = event.get("choices")
+                        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                            delta = choices[0].get("delta")
+                            reasoning = next(
+                                (delta[key] for key in ("reasoning_content", "reasoning", "thinking")
+                                 if isinstance(delta, dict) and isinstance(delta.get(key), str)),
+                                "",
+                            )
+                            if reasoning:
+                                yield ChatResponse("", reasoning=reasoning)
+                            fragment = delta.get("content") if isinstance(delta, dict) else None
+                            if isinstance(fragment, str) and fragment:
+                                yield ChatResponse(fragment)
+                        if isinstance(prompt_tokens, int):
+                            yield ChatResponse("", prompt_tokens=prompt_tokens)
+        except httpx.ConnectError as exc:
+            raise ConnectionError(
+                f"Failed to connect to {self.base_url}. Is the LLM server running?"
+            ) from exc
+        except (httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+            raise TimeoutError(
+                f"LLM server at {self.base_url} did not respond within "
+                f"{self._timeout_description()}."
+            ) from exc
+        except httpx.NetworkError as exc:
+            raise ConnectionError(f"Network error connecting to {self.base_url}: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            self._handle_http_error(exc)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Unexpected error calling {self.base_url}: {type(exc).__name__}: {exc}"
+            ) from exc
+
+    def _timeout_description(self) -> str:
+        return f"{self.timeout}s" if self.timeout is not None else "the configured timeout"
+
+    def _parse_response(self, response: httpx.Response) -> ChatResponse:
+        try:
+            payload = response.json()
+            message = payload["choices"][0]["message"]
+            content = message["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            body = response.text[:500] if response.text else "(empty)"
+            raise ValueError(
+                f"The model endpoint returned an unexpected response: {exc}\n"
+                f"Response body: {body}"
+            ) from exc
+        if not isinstance(content, str):
+            raise ValueError(
+                f"The model endpoint returned non-text content: {type(content).__name__}"
+            )
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
+        return ChatResponse(
+            content,
+            reasoning=next(
+                (message[key] for key in ("reasoning_content", "reasoning", "thinking")
+                 if isinstance(message.get(key), str)),
+                "",
+            ),
+            prompt_tokens=prompt_tokens if isinstance(prompt_tokens, int) else None,
+        )
+
+    def _handle_http_error(self, exc: httpx.HTTPStatusError) -> None:
+        status = exc.response.status_code
+        body = self._extract_error_body(exc.response)
+        
+        if status == 401:
+            raise PermissionError(
+                f"Authentication failed (401). Check your API key.\n"
+                f"Server response: {body}"
+            ) from exc
+        elif status == 403:
+            raise PermissionError(
+                f"Access denied (403). You may not have permission to use this model.\n"
+                f"Server response: {body}"
+            ) from exc
+        elif status == 404:
+            raise ValueError(
+                f"Endpoint not found (404). Check the URL: {self.base_url}\n"
+                f"Server response: {body}"
+            ) from exc
+        elif status == 429:
+            raise ValueError(
+                f"Rate limit exceeded (429). Try again in a moment.\n"
+                f"Server response: {body}"
+            ) from exc
+        elif 500 <= status < 600:
+            raise RuntimeError(
+                f"Server error ({status}). The LLM server encountered an error.\n"
+                f"Server response: {body}"
+            ) from exc
+        else:
+            raise ValueError(
+                f"HTTP {status} error from {self.base_url}\n"
+                f"Server response: {body}"
+            ) from exc
+
+    @staticmethod
+    def _extract_error_body(response: httpx.Response) -> str:
+        try:
+            data = response.json()
+            if isinstance(data, dict):
+                return data.get("error", data.get("message", str(data)))
+            return str(data)
+        except Exception:
+            return response.text[:500] if response.text else "(no body)"

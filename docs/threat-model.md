@@ -4,4 +4,4 @@ The terminal transcript is untrusted observational data. The prompt labels it in
 
 The application has no tool, command execution, filesystem browsing, or autonomous loop. A recognized shell fence is only a suggestion. **Insert** writes text into the terminal input; the operator reviews it and executes it manually.
 
-Transcript sharing is bounded by both line and character limits and occurs only when a user submits a question. API keys should come from `TRIAGETTY_API_KEY` or, in a future release, a desktop keyring rather than being persisted in plaintext.
+Transcript sharing is bounded by both line and character limits and occurs only when a user submits a question. API keys should come from `TROUBLESHELL_API_KEY` or, in a future release, a desktop keyring rather than being persisted in plaintext.

@@ -19,6 +19,11 @@ class ChatRequest:
 @dataclass(frozen=True)
 class ChatResponse:
     content: str
+    # OpenAI-compatible servers, including llama.cpp, may report this exact
+    # count for the request that produced the response.
+    prompt_tokens: int | None = None
+    # Optional model reasoning kept separate from the user-facing answer.
+    reasoning: str = ""
 
 
 @dataclass(frozen=True)

@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=TriageTTY
+Name=TroubleShell
 Comment=Linux terminal with a human-controlled AI troubleshooting pane
-Exec=triagetty
-Icon=org.triagetty.TriageTTY
+Exec=troubleshell
+Icon=org.troubleshell.TroubleShell
 Terminal=false
 Categories=System;TerminalEmulator;
 Keywords=terminal;Linux;troubleshooting;assistant;
 StartupNotify=true
-StartupWMClass=TriageTTY
+StartupWMClass=TroubleShell
