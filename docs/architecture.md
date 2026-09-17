@@ -1,8 +1,8 @@
 # TroubleShell architecture
 
-TroubleShell is a small, standalone GTK 4 application. Its architecture is intentionally direct: a VTE terminal, a chat pane, a deterministic prompt builder, one provider client, and pure parsing/rendering helpers. There are no agent, tool, plugin, workflow, or orchestration layers.
+TroubleShell 0.2 is the final release of the standalone GTK 4 terminal architecture. It is intentionally direct: a VTE terminal, a chat pane, a deterministic prompt builder, one provider client, and pure parsing/rendering helpers. There are no agent, tool, plugin, workflow, or orchestration layers in this release.
 
-## Runtime data flow
+## Runtime data flow in 0.2
 
 ```text
 Shell output
@@ -37,18 +37,13 @@ PTY proxy --> CaptureServer --> TranscriptStore --> ContextSession
 - displays the identical bytes forwarded by the proxy; and
 - inserts UTF-8 command text with `feed_child()` without appending a newline.
 
-The proxy sends shell output to the parent CaptureServer before forwarding it
-to VTE. The parent appends packets unchanged to the locked TranscriptStore;
-VTE scrollback is display-only and is never a model-context source.
+The proxy sends shell output to the parent CaptureServer before forwarding it to VTE. The parent appends packets unchanged to the locked TranscriptStore; VTE scrollback is display-only and is never a model-context source.
 
 There is intentionally no `run_command()` method. Pressing Enter remains a human action in the terminal.
 
 ## Context construction
 
-`llm/context_session.py` selects the complete unacknowledged captured event
-range for each request. Normal turns do not trim terminal text. When the full
-request approaches the provider context limit, ContextSession performs one
-explicit whole-request compaction and retains the newest terminal third.
+`llm/context_session.py` selects the complete unacknowledged captured event range for each request. Normal turns do not trim terminal text. When the full request approaches the provider context limit, ContextSession performs one explicit whole-request compaction and retains the newest terminal third.
 
 `llm/prompt.py` builds a deterministic request containing:
 
@@ -83,9 +78,33 @@ GTK and VTE are system dependencies accessed through PyGObject. TroubleShell doe
 
 ## Security posture
 
-The main evidence boundary is PTY capture and request construction: captured
-terminal output is included with each request and compacted only at the provider
-limit. The main execution boundary is command insertion: the model can suggest
-text, but the user must review and execute it.
+The main evidence boundary is PTY capture and request construction: captured terminal output is included with each request and compacted only at the provider limit. The main execution boundary is command insertion: the model can suggest text, but the user must review and execute it.
 
 The application does not provide a guarantee that terminal text cannot influence a model, that a suggested command is safe, or that a configured endpoint retains no data. Those are deployment and provider-policy concerns documented further in [threat-model.md](threat-model.md).
+
+## Planned post-0.2 architecture
+
+Version 0.2 closes the standalone-terminal implementation. Future TroubleShell development is intended to move the project out of the business of maintaining its own terminal and AI chat application.
+
+The planned direction is a lightweight integration layer between a mature terminal application and Ysparr:
+
+```text
+mature terminal application
+          |
+          v
+     TroubleShell
+          |
+          v
+        Ysparr
+          |
+          v
+OpenAI-compatible provider
+```
+
+The specific terminal application has intentionally not been selected yet.
+
+TroubleShell's future responsibility is expected to be narrow and terminal-specific: observe or receive terminal output, maintain the terminal context needed for troubleshooting, recognize AI-suggested shell commands, and provide safe human-controlled actions such as Insert and Copy. It should not duplicate mature terminal-emulator behavior.
+
+Ysparr is expected to provide the durable OpenAI-compatible request path. That separates provider connectivity and long-lived request handling from TroubleShell's terminal integration concerns.
+
+The 0.2 architecture remains documented here as the preserved working implementation and as a reference for behavior that may be carried forward into the middleware design.
