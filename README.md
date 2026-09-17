@@ -2,18 +2,19 @@
 
 **Two minds. One terminal. You stay in control.**
 
-TroubleShell is a native Linux desktop terminal with an AI troubleshooting pane. It captures ordered shell output through a PTY proxy and includes that context when you submit a question. Normal turns are untrimmed; explicit compaction occurs only when the complete request approaches the provider context limit. Suggested shell commands appear as **Insert** and **Copy** controls.
+TroubleShell 0.2 is a native Linux desktop terminal with an AI troubleshooting pane. It captures ordered shell output through a PTY proxy and includes that context when you submit a question. Normal turns are untrimmed; explicit compaction occurs only when the complete request approaches the provider context limit. Suggested shell commands appear as **Insert** and **Copy** controls.
 
 TroubleShell is deliberately not an autonomous agent. The model cannot execute commands, browse files, call tools, or inspect the host directly. **Insert** only places command text into the terminal input; it never presses Enter.
 
-
 ## Status
 
-TroubleShell 0.1.0 is a working Linux desktop MVP. It provides:
+**TroubleShell 0.2 is the first fully working release of the current standalone-terminal architecture, and the final release planned for that architecture.**
+
+It provides:
 
 - an embedded GTK 4/VTE terminal;
 - a current-session troubleshooting chat;
-  - ordered PTY-captured terminal context with provider-limit compaction;
+- ordered PTY-captured terminal context with provider-limit compaction;
 - a configurable OpenAI-compatible chat-completions client;
 - an editable Linux administrator system prompt;
 - safe rendering of a deliberately small Markdown subset;
@@ -22,6 +23,31 @@ TroubleShell 0.1.0 is a working Linux desktop MVP. It provides:
 - local TOML configuration and a user-local desktop launcher.
 
 The tested development platform is Ubuntu 26.04 with GTK 4.22, VTE 0.84, and PyGObject. The application is intended to run on compatible Linux desktop environments as well. VTE is provided by the operating system; it is not bundled or modified by TroubleShell.
+
+### What comes next
+
+TroubleShell is moving away from being its own terminal application.
+
+The next architecture will make TroubleShell a lightweight integration layer around mature components instead of continuing to maintain a complete terminal and AI chat UI itself. The current direction is:
+
+```text
+terminal application
+        |
+        v
+   TroubleShell
+        |
+        v
+      Ysparr
+        |
+        v
+OpenAI-compatible AI provider
+```
+
+The terminal application has not been selected yet. The goal is to integrate TroubleShell with a mature terminal rather than compete with one.
+
+In the new architecture, TroubleShell will concentrate on the terminal-specific behavior that makes it useful: observing terminal context, connecting that context to AI conversations, identifying suggested shell commands, and exposing safe human-controlled actions such as inserting or copying those commands. Ysparr will provide the durable OpenAI-compatible request path between clients and AI providers.
+
+Version 0.2 remains available as the preserved standalone implementation while that architecture is developed.
 
 ## Install on Ubuntu 26.04
 
@@ -85,13 +111,13 @@ terminal_scrollback_lines = -1
 
 The endpoint, model, TLS setting, shell, terminal scrollback, provider context limit, request timeout, system prompt, and context-payload debugging can be edited directly in `config.toml`; restart TroubleShell after changing them. Set `terminal_scrollback_lines` to `-1` (or `"none"`) for no terminal scrollback limit, or to a positive number to cap retained lines. Set `request_timeout` to a number of seconds, or leave it as `"none"` for no timeout. Set `debug_context_payload = true` to expose the full outbound request under **Context**; it is disabled by default because the payload can include sensitive terminal and conversation data.
 
-The API key field is persisted locally when used. Treat the configuration file as sensitive and keep its permissions restricted. Desktop keyring integration is a future improvement.
+The API key field is persisted locally when used. Treat the configuration file as sensitive and keep its permissions restricted.
 
 ## Use TroubleShell
 
 1. Run commands normally in the embedded terminal.
 2. Ask a troubleshooting question in the multiline chat field.
-3. Review the captured context and the model’s explanation.
+3. Review the captured context and the model's explanation.
 4. Select private or irrelevant terminal text, right-click, and choose **Remove from context**. TroubleShell removes it from the local transcript and rebuilds the visible terminal scrollback; this cannot erase text already sent to a provider.
 5. Review any suggested command before selecting **Insert** or **Copy**.
 6. If inserted, edit the command in the terminal and press Enter yourself.
@@ -100,11 +126,13 @@ The chat pane reports context information for each request. The model receives c
 
 ## Safety boundary and known limitations
 
-The model is a recommendation service, not an agent. TroubleShell has no tool calling, function calling, filesystem browsing, repository analysis, command interception, autonomous loop, or automatic execution path.
+The model is a recommendation service, not an agent. TroubleShell 0.2 has no tool calling, function calling, filesystem browsing, repository analysis, autonomous loop, or automatic execution path.
 
 Terminal output can contain passwords, tokens, hostnames, paths, and other sensitive information. Review the captured output before sending it to a remote endpoint. The system prompt treats terminal text as untrusted data, but prompt-injection defenses are not a security guarantee.
 
-The Cancel control prevents a completed or stale response from being displayed, while an already-started HTTP request may continue until its timeout. API-key keyring storage, transcript redaction, richer Markdown, and broader packaging are intentionally left for later releases.
+The Cancel control prevents a completed or stale response from being displayed, while an already-started HTTP request may continue until its timeout.
+
+Because 0.2 closes the standalone-terminal architecture, additional work such as richer Markdown, keyring integration, broader packaging, and further UI expansion will not be pursued in this implementation unless needed for maintenance.
 
 ## Development
 
