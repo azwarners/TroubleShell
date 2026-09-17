@@ -2,9 +2,9 @@
 
 **Two minds. One terminal. You stay in control.**
 
-TroubleShell 0.2 is a native Linux desktop terminal with an AI troubleshooting pane. It captures ordered shell output through a PTY proxy and includes that context when you submit a question. Normal turns are untrimmed; explicit compaction occurs only when the complete request approaches the provider context limit. Suggested shell commands appear as **Insert** and **Copy** controls.
+TroubleShell 0.2 is a native Linux desktop terminal with an AI troubleshooting pane. It captures ordered shell output through a PTY proxy and includes that context when you submit a question. Normal turns are untrimmed; explicit compaction occurs only when the complete request approaches the provider context limit. Suggested shell commands appear as **Insert**, **Execute**, and **Copy** controls.
 
-TroubleShell is deliberately not an autonomous agent. The model cannot execute commands, browse files, call tools, or inspect the host directly. **Insert** only places command text into the terminal input; it never presses Enter.
+TroubleShell is deliberately not an autonomous agent. The model cannot autonomously execute commands, browse files, call tools, or inspect the host directly. **Insert** places command text into the terminal input without pressing Enter. **Execute** runs a suggested command only when the operator explicitly clicks it.
 
 ## Status
 
@@ -18,7 +18,7 @@ It provides:
 - a configurable OpenAI-compatible chat-completions client;
 - an editable Linux administrator system prompt;
 - safe rendering of a deliberately small Markdown subset;
-- clickable shell command cards with Insert and Copy actions;
+- clickable shell command cards with Insert, Execute, and Copy actions;
 - request status, cancellation, and provider error feedback;
 - local TOML configuration and a user-local desktop launcher.
 
@@ -45,7 +45,7 @@ OpenAI-compatible AI provider
 
 The terminal application has not been selected yet. The goal is to integrate TroubleShell with a mature terminal rather than compete with one.
 
-In the new architecture, TroubleShell will concentrate on the terminal-specific behavior that makes it useful: observing terminal context, connecting that context to AI conversations, identifying suggested shell commands, and exposing safe human-controlled actions such as inserting or copying those commands. Ysparr will provide the durable OpenAI-compatible request path between clients and AI providers.
+In the new architecture, TroubleShell will concentrate on the terminal-specific behavior that makes it useful: observing terminal context, connecting that context to AI conversations, identifying suggested shell commands, and exposing safe human-controlled actions such as inserting, executing, or copying those commands. Ysparr will provide the durable OpenAI-compatible request path between clients and AI providers.
 
 Version 0.2 remains available as the preserved standalone implementation while that architecture is developed.
 
@@ -119,14 +119,14 @@ The API key field is persisted locally when used. Treat the configuration file a
 2. Ask a troubleshooting question in the multiline chat field.
 3. Review the captured context and the model's explanation.
 4. Select private or irrelevant terminal text, right-click, and choose **Remove from context**. TroubleShell removes it from the local transcript and rebuilds the visible terminal scrollback; this cannot erase text already sent to a provider.
-5. Review any suggested command before selecting **Insert** or **Copy**.
-6. If inserted, edit the command in the terminal and press Enter yourself.
+5. Review any suggested command before selecting **Insert**, **Execute**, or **Copy**.
+6. **Insert** places the command in the terminal for editing and manual execution; **Execute** immediately submits that command to the shell after your explicit click.
 
 The chat pane reports context information for each request. The model receives context only at submission time; TroubleShell does not continuously stream terminal output. Context is compacted as one whole request only near the provider limit.
 
 ## Safety boundary and known limitations
 
-The model is a recommendation service, not an agent. TroubleShell 0.2 has no tool calling, function calling, filesystem browsing, repository analysis, autonomous loop, or automatic execution path.
+The model is a recommendation service, not an autonomous agent. TroubleShell 0.2 has no tool calling, function calling, filesystem browsing, repository analysis, autonomous loop, or automatic model-controlled execution path. The **Execute** action is a direct operator-controlled UI action and should only be used after reviewing the suggested command.
 
 Terminal output can contain passwords, tokens, hostnames, paths, and other sensitive information. Review the captured output before sending it to a remote endpoint. The system prompt treats terminal text as untrusted data, but prompt-injection defenses are not a security guarantee.
 
@@ -143,7 +143,7 @@ Run the focused test suite from the repository:
 python -m pytest -q
 ```
 
-Core transcript, prompt, parser, rendering, configuration, insertion, VTE adapter, and mocked HTTP client behavior are covered by unit tests. GTK/VTE imports are also verified on the Ubuntu development environment; visual interaction still benefits from manual desktop playtesting.
+Core transcript, prompt, parser, rendering, configuration, insertion/execution, VTE adapter, and mocked HTTP client behavior are covered by unit tests. GTK/VTE imports are also verified on the Ubuntu development environment; visual interaction still benefits from manual desktop playtesting.
 
 Architecture details are in [docs/architecture.md](docs/architecture.md). The threat model is in [docs/threat-model.md](docs/threat-model.md).
 
