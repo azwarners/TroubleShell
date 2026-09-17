@@ -24,7 +24,7 @@ PTY proxy --> CaptureServer --> TranscriptStore --> ContextSession
                                            |
                          prose / command cards / errors
                                            |
-                            Insert -> VTE input only
+                         Insert / Execute / Copy
 ```
 
 ## Application boundary
@@ -34,12 +34,13 @@ PTY proxy --> CaptureServer --> TranscriptStore --> ContextSession
 `terminal/pane.py` is the narrow VTE adapter. It:
 
 - launches the configured shell through the PTY proxy;
-- displays the identical bytes forwarded by the proxy; and
-- inserts UTF-8 command text with `feed_child()` without appending a newline.
+- displays the identical bytes forwarded by the proxy;
+- inserts UTF-8 command text with `feed_child()` without appending a newline; and
+- executes a suggested command only when the operator explicitly selects the Execute action.
+
+Execution is therefore available as a human-controlled convenience, not as an autonomous model capability. The model cannot invoke the Execute action itself.
 
 The proxy sends shell output to the parent CaptureServer before forwarding it to VTE. The parent appends packets unchanged to the locked TranscriptStore; VTE scrollback is display-only and is never a model-context source.
-
-There is intentionally no `run_command()` method. Pressing Enter remains a human action in the terminal.
 
 ## Context construction
 
@@ -68,7 +69,7 @@ The HTTP client is isolated from GTK and can be replaced or mocked. Tests use `h
 - fenced `bash`, `sh`, and `shell` blocks become insertable `CodeSegment` values;
 - untagged and non-shell fences remain non-insertable code.
 
-`chat/rendering.py` escapes model prose before applying a small Pango-safe formatting subset. Shell cards display escaped code and expose only **Insert** and **Copy** actions. No rendered response can create an execution action.
+`chat/rendering.py` escapes model prose before applying a small Pango-safe formatting subset. Shell cards display escaped code and expose **Insert**, **Execute**, and **Copy** actions. Insert feeds the command text into the terminal without a newline; Execute submits the command only after the operator explicitly clicks the action; Copy places the command on the clipboard.
 
 ## Configuration and packaging
 
@@ -78,7 +79,7 @@ GTK and VTE are system dependencies accessed through PyGObject. TroubleShell doe
 
 ## Security posture
 
-The main evidence boundary is PTY capture and request construction: captured terminal output is included with each request and compacted only at the provider limit. The main execution boundary is command insertion: the model can suggest text, but the user must review and execute it.
+The main evidence boundary is PTY capture and request construction: captured terminal output is included with each request and compacted only at the provider limit. The main execution boundary is explicit operator action: the model can suggest text, but only the user can choose Insert or Execute. Execute should be treated like manually entering and submitting the suggested command in the terminal.
 
 The application does not provide a guarantee that terminal text cannot influence a model, that a suggested command is safe, or that a configured endpoint retains no data. Those are deployment and provider-policy concerns documented further in [threat-model.md](threat-model.md).
 
@@ -103,7 +104,7 @@ OpenAI-compatible provider
 
 The specific terminal application has intentionally not been selected yet.
 
-TroubleShell's future responsibility is expected to be narrow and terminal-specific: observe or receive terminal output, maintain the terminal context needed for troubleshooting, recognize AI-suggested shell commands, and provide safe human-controlled actions such as Insert and Copy. It should not duplicate mature terminal-emulator behavior.
+TroubleShell's future responsibility is expected to be narrow and terminal-specific: observe or receive terminal output, maintain the terminal context needed for troubleshooting, recognize AI-suggested shell commands, and provide safe human-controlled actions such as Insert, Execute, and Copy. It should not duplicate mature terminal-emulator behavior.
 
 Ysparr is expected to provide the durable OpenAI-compatible request path. That separates provider connectivity and long-lived request handling from TroubleShell's terminal integration concerns.
 
